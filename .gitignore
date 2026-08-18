@@ -1,0 +1,72 @@
+# ==============================================================================
+# V-CAMS Master .gitignore
+# ==============================================================================
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build Outputs & Bundles
+dist/
+build/
+out/
+.docusaurus/
+.next/
+*.tsbuildinfo
+
+# Environment & Local Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+*.crt
+
+# Keep example environment files
+!.env.example
+
+# Docker Local Volumes & Data Mounts
+postgres_data/
+vault_data/
+redis_data/
+minio_data/
+nats_data/
+*.rdb
+
+# Logs & Diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDE & Editor Directories
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary & Cache Directories
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+*.tmp
+*.temp

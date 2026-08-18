@@ -1,0 +1,22 @@
+i want you to craft this prompt into structural and more readable as technical, and then make it and .md file called instruction.md inside this prompt dir:
+
+so here's the thing
+i work as 3rd party vendor, my company itself is manage both internal & client assets
+so i need an tools to manage it, the things that need to manage will described as bellow:
+- Inventory (such as VM, Cloud Infra (GCP, ALI, AWS, Digital Ocean, etc), VPN, etc)
+- Client (This consist client descriptions, site, location, contract)
+- Project (This most likely connected to client, since one client may have multiple project, based on the signed contract)
+- Employee (this might be complicated tho, since it's need to be hierachical, and also this employee data can/could be assigned into project)
+- Access (This is related to employee and inventory, since it's defining which employee have access to which inventory)
+
+As for my tech stack in mind, i want it to be microservices, and using JS mainly (please use modern and most recent or most durable framework/library)
+as for front end, i want it to use ReactJS (Typescript) and tailwind
+
+As for database i want use PostgreSQL 17
+
+I want you to create:
+1. Relational structure diagram based on the descriptions/needs
+2. API proposal for each services described
+3. flow of the system
+4. SQL init query, for creating Table that will accomodate all the API
+5. you may suggest any additional informations if you think it needed

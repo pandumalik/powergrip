@@ -1,0 +1,144 @@
+services:
+  # ============================================================================
+  # 1. PostgreSQL 17 Primary Database
+  # ============================================================================
+  postgres:
+    image: postgres:17-alpine
+    container_name: vcams-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vcams_db}
+      POSTGRES_USER: ${POSTGRES_USER:-vcams_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vcams_secure_password_2026}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vcams_user} -d ${POSTGRES_DB:-vcams_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vcams-net
+
+  # ============================================================================
+  # 2. Keycloak 26 Identity & Access Management (OIDC & MFA)
+  # ============================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1.0
+    container_name: vcams-keycloak
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_secure_password_2026}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-vcams_db}
+      KC_DB_USERNAME: ${POSTGRES_USER:-vcams_user}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-vcams_secure_password_2026}
+      KC_DB_SCHEMA: keycloak
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HTTP_PORT: 8080
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vcams-net
+
+  # ============================================================================
+  # 3. HashiCorp Vault (SSH CA & Dynamic Secrets Engine)
+  # ============================================================================
+  vault:
+    image: hashicorp/vault:1.18.0
+    container_name: vcams-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_ROOT_TOKEN:-root_dev_token_vcams_2026}
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    ports:
+      - "${VAULT_PORT:-8200}:8200"
+    volumes:
+      - vault_data:/vault/data
+    networks:
+      - vcams-net
+
+  # ============================================================================
+  # 4. Redis 7 (Cache, Distributed Locks & BullMQ Schedulers)
+  # ============================================================================
+  redis:
+    image: redis:7.4-alpine
+    container_name: vcams-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secure_password_2026}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_secure_password_2026}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vcams-net
+
+  # ============================================================================
+  # 5. MinIO Object Storage (Contract PDFs, SLAs, Invoices)
+  # ============================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: vcams-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secure_password_2026}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - vcams-net
+
+  # ============================================================================
+  # 6. NATS JetStream (Asynchronous Lightweight Event Mesh)
+  # ============================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: vcams-nats
+    restart: unless-stopped
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - nats_data:/data
+    networks:
+      - vcams-net
+
+volumes:
+  postgres_data:
+    driver: local
+  vault_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  nats_data:
+    driver: local
+
+networks:
+  vcams-net:
+    driver: bridge
