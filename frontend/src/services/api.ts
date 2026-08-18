@@ -351,6 +351,77 @@ class ApiClient {
   async getAuditLogs(): Promise<AccessAuditLog[]> {
     return this.auditLogs;
   }
+
+  // ===========================================================================
+  // MISC Key-Value / Dynamic List Store (Industries, Taxonomies, Configs)
+  // ===========================================================================
+  private miscData: Record<string, any> = {
+    INDUSTRIES: [
+      'Financial Services',
+      'E-Commerce & Retail',
+      'Healthcare & Pharma',
+      'Telecommunications',
+      'Logistics & Supply Chain',
+      'Government & Public Sector',
+      'Energy & Mining',
+      'Media & Entertainment',
+      'Software & SaaS',
+    ],
+  };
+
+  async getMisc(key: string): Promise<any> {
+    const upperKey = key.toUpperCase();
+    if (this.useMock) return this.miscData[upperKey] || null;
+    try {
+      const res = await fetch(`${API_BASE}/misc/${upperKey}`);
+      if (!res.ok) throw new Error('API offline');
+      const data = await res.json();
+      return data.value;
+    } catch {
+      return this.miscData[upperKey] || null;
+    }
+  }
+
+  async updateMisc(key: string, value: any): Promise<any> {
+    const upperKey = key.toUpperCase();
+    this.miscData[upperKey] = value;
+    if (!this.useMock) {
+      try {
+        await fetch(`${API_BASE}/misc/${upperKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value }),
+        });
+      } catch (err) {
+        console.error('Failed to sync misc to backend', err);
+      }
+    }
+    return value;
+  }
+
+  async getIndustries(): Promise<string[]> {
+    const res = await this.getMisc('INDUSTRIES');
+    return Array.isArray(res) ? res : this.miscData.INDUSTRIES;
+  }
+
+  async addIndustry(industryName: string): Promise<string[]> {
+    const trimmed = industryName.trim();
+    if (!trimmed) return this.getIndustries();
+    const current = await this.getIndustries();
+    if (!current.includes(trimmed)) {
+      const updated = [...current, trimmed];
+      await this.updateMisc('INDUSTRIES', updated);
+      return updated;
+    }
+    return current;
+  }
+
+  async deleteIndustry(industryName: string): Promise<string[]> {
+    const current = await this.getIndustries();
+    const updated = current.filter((i) => i !== industryName);
+    await this.updateMisc('INDUSTRIES', updated);
+    return updated;
+  }
 }
 
 export const api = new ApiClient();

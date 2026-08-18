@@ -179,3 +179,12 @@ export interface AccessAuditLog {
   metadata?: Record<string, any>;
   createdAt: string;
 }
+
+export interface MiscEntry {
+  id: string;
+  key: string;
+  value: any;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}

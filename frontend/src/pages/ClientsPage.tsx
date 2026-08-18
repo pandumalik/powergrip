@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
 import { Client } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { SearchableCreatableSelect } from '@/components/common/SearchableCreatableSelect';
 import {
   Building2,
   Plus,
@@ -15,13 +16,23 @@ import {
   Edit3,
   X,
   Save,
+  Layers,
+  Trash2,
 } from 'lucide-react';
 
 export const ClientsPage: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
+  const [industries, setIndustries] = useState<string[]>([]);
   const [search, setSearch] = useState('');
+  const [industryFilter, setIndustryFilter] = useState('ALL');
+
+  // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [isIndustryModalOpen, setIsIndustryModalOpen] = useState(false);
+
+  // Industry Manager State
+  const [newIndustryInput, setNewIndustryInput] = useState('');
 
   // Create Form State
   const [name, setName] = useState('');
@@ -31,38 +42,94 @@ export const ClientsPage: React.FC = () => {
   const [country, setCountry] = useState('Indonesia');
   const [city, setCity] = useState('Jakarta');
 
-  const loadClients = () => {
-    api.getClients().then(setClients);
+  const loadData = async () => {
+    const [cls, inds] = await Promise.all([api.getClients(), api.getIndustries()]);
+    setClients(cls);
+    setIndustries(inds);
+    if (inds.length > 0 && !industry) {
+      setIndustry(inds[0]);
+    }
   };
 
   useEffect(() => {
-    loadClients();
+    loadData();
   }, []);
+
+  const handleCreateIndustry = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newIndustryInput.trim()) return;
+    const updated = await api.addIndustry(newIndustryInput.trim());
+    setIndustries(updated);
+    setNewIndustryInput('');
+  };
+
+  const handleDeleteIndustry = async (ind: string) => {
+    const updated = await api.deleteIndustry(ind);
+    setIndustries(updated);
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !code) return;
-    await api.createClient({ name, code, industry, billingEmail, country, city });
+
+    const selectedIndustry = (industry || industries[0] || 'General').trim();
+
+    // Persist new category to MISC database table ONLY upon saving client
+    if (selectedIndustry && !industries.includes(selectedIndustry)) {
+      await api.addIndustry(selectedIndustry);
+    }
+
+    await api.createClient({
+      name,
+      code,
+      industry: selectedIndustry,
+      billingEmail,
+      country,
+      city,
+    });
+
     setIsCreateOpen(false);
     setName('');
     setCode('');
-    loadClients();
+    loadData();
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingClient) return;
-    await api.updateClient(editingClient.id, editingClient);
+
+    const selectedIndustry = (editingClient.industry || industries[0] || 'General').trim();
+
+    // Persist new category to MISC database table ONLY upon saving client
+    if (selectedIndustry && !industries.includes(selectedIndustry)) {
+      await api.addIndustry(selectedIndustry);
+    }
+
+    await api.updateClient(editingClient.id, {
+      ...editingClient,
+      industry: selectedIndustry,
+    });
+
     setEditingClient(null);
-    loadClients();
+    loadData();
   };
 
-  const filtered = clients.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.code.toLowerCase().includes(search.toLowerCase()) ||
-      c.country.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = clients.filter((c) => {
+    let match = true;
+    if (industryFilter !== 'ALL') {
+      match = match && c.industry === industryFilter;
+    }
+    if (search) {
+      const s = search.toLowerCase();
+      match =
+        match &&
+        (c.name.toLowerCase().includes(s) ||
+          c.code.toLowerCase().includes(s) ||
+          (c.industry || '').toLowerCase().includes(s) ||
+          c.country.toLowerCase().includes(s));
+    }
+    return match;
+  });
 
   return (
     <div className="space-y-6">
@@ -78,25 +145,55 @@ export const ClientsPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsCreateOpen(true)}
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          Onboard New Client
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => setIsIndustryModalOpen(true)}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 flex items-center gap-2 transition-all"
+          >
+            <Layers className="w-4 h-4 text-purple-400" />
+            Manage Industries ({industries.length})
+          </button>
+
+          <button
+            onClick={() => {
+              if (industries.length > 0 && !industry) {
+                setIndustry(industries[0]);
+              }
+              setIsCreateOpen(true);
+            }}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            Onboard Client
+          </button>
+        </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-        <input
-          type="text"
-          placeholder="Search by client name, code (CLI-...), or country..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-slate-900/80 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 transition-colors"
-        />
+      {/* Search & Filter Bar */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+          <input
+            type="text"
+            placeholder="Search by client name, code (CLI-...), industry, or country..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-slate-900/80 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 transition-colors"
+          />
+        </div>
+
+        <select
+          value={industryFilter}
+          onChange={(e) => setIndustryFilter(e.target.value)}
+          className="bg-slate-900/80 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-brand-500 shrink-0"
+        >
+          <option value="ALL">All Industries ({industries.length})</option>
+          {industries.map((ind) => (
+            <option key={ind} value={ind}>
+              {ind}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Client Grid */}
@@ -122,7 +219,10 @@ export const ClientsPage: React.FC = () => {
                   <h3 className="text-base font-bold text-white mt-1.5 group-hover:text-brand-400 transition-colors">
                     {client.name}
                   </h3>
-                  <p className="text-xs text-slate-400">{client.industry}</p>
+                  <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[11px] font-medium">
+                    <Layers className="w-3 h-3" />
+                    {client.industry || 'General Industry'}
+                  </span>
                 </div>
                 <StatusBadge status={client.status} />
               </div>
@@ -188,6 +288,77 @@ export const ClientsPage: React.FC = () => {
         ))}
       </div>
 
+      {/* Industry Catalog Manager Modal (MISC Table) */}
+      {isIndustryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="glass-panel w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Layers className="w-5 h-5 text-purple-400" />
+                Industry Taxonomy Catalog (MISC)
+              </h3>
+              <button
+                onClick={() => setIsIndustryModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 mb-4">
+              Standardized industry categories stored dynamically in the <code className="text-purple-300 font-mono">MISC (key: INDUSTRIES)</code> catalog.
+            </p>
+
+            {/* Add New Category Input */}
+            <form onSubmit={handleCreateIndustry} className="flex gap-2 mb-4">
+              <input
+                type="text"
+                placeholder="Enter new industry category name..."
+                value={newIndustryInput}
+                onChange={(e) => setNewIndustryInput(e.target.value)}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-purple-600/20"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Category
+              </button>
+            </form>
+
+            {/* Category List */}
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {industries.map((ind) => (
+                <div
+                  key={ind}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs"
+                >
+                  <span className="font-semibold text-slate-200">{ind}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteIndustry(ind)}
+                    className="p-1 text-slate-400 hover:text-rose-400 rounded transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end pt-4 border-t border-slate-800 mt-4">
+              <button
+                type="button"
+                onClick={() => setIsIndustryModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 rounded-xl"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Client Modal */}
       {editingClient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
@@ -243,26 +414,30 @@ export const ClientsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Industry</label>
-                  <input
-                    type="text"
-                    value={editingClient.industry || ''}
-                    onChange={(e) => setEditingClient({ ...editingClient, industry: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-                  />
+              {/* Searchable Creatable Industry Combobox */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-300">Industry</label>
+                  <span className="text-[11px] text-slate-400">Search or type new category</span>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Billing Email</label>
-                  <input
-                    type="email"
-                    required
-                    value={editingClient.billingEmail}
-                    onChange={(e) => setEditingClient({ ...editingClient, billingEmail: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-                  />
-                </div>
+                <SearchableCreatableSelect
+                  value={editingClient.industry || ''}
+                  onChange={(val) => setEditingClient({ ...editingClient, industry: val })}
+                  options={industries}
+                  placeholder="Select or search industry..."
+                  createLabel="➕ Select new category"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Billing Email</label>
+                <input
+                  type="email"
+                  required
+                  value={editingClient.billingEmail}
+                  onChange={(e) => setEditingClient({ ...editingClient, billingEmail: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -345,14 +520,16 @@ export const ClientsPage: React.FC = () => {
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
                   />
                 </div>
+
+                {/* Searchable Creatable Industry Combobox */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Industry</label>
-                  <input
-                    type="text"
-                    placeholder="Financial Services"
+                  <SearchableCreatableSelect
                     value={industry}
-                    onChange={(e) => setIndustry(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
+                    onChange={setIndustry}
+                    options={industries}
+                    placeholder="Search or type new..."
+                    createLabel="➕ Select new category"
                   />
                 </div>
               </div>

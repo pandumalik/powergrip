@@ -270,3 +270,17 @@ export const accessGrantsRelations = relations(accessGrants, ({ one }) => ({
     references: [projects.id],
   }),
 }));
+
+// =============================================================================
+// MISC Key-Value / List Store Table
+// Accommodates dynamic catalogs such as Industries, Categories, Config Lists
+// =============================================================================
+export const misc = pgTable('misc', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  key: varchar('key', { length: 128 }).notNull().unique(),
+  value: jsonb('value').$type<any>().notNull(),
+  description: text('description'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+

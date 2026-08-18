@@ -15,6 +15,7 @@ import {
   Save,
   Trash2,
   UserPlus,
+  AlertCircle,
 } from 'lucide-react';
 
 export const ProjectsPage: React.FC = () => {
@@ -32,10 +33,18 @@ export const ProjectsPage: React.FC = () => {
   const [code, setCode] = useState('');
   const [clientId, setClientId] = useState('');
   const [projectType, setProjectType] = useState<any>('INFRA_MIGRATION');
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState('');
+  const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [dateError, setDateError] = useState('');
 
   // Member Assignment State inside Edit Modal
   const [newMemberEmpId, setNewMemberEmpId] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<ProjectRole>('DEVOPS_ENGINEER');
+  const [editTagInput, setEditTagInput] = useState('');
+  const [editDateError, setEditDateError] = useState('');
 
   const loadData = () => {
     api.getProjects().then(setProjects);
@@ -47,26 +56,139 @@ export const ProjectsPage: React.FC = () => {
     loadData();
   }, []);
 
+  // Comma-separated tag auto-handler for Create Modal
+  const handleTagInputChange = (val: string) => {
+    if (val.includes(',')) {
+      const parts = val.split(',');
+      const newTags = [...tags];
+      for (let i = 0; i < parts.length - 1; i++) {
+        const trimmed = parts[i].trim();
+        if (trimmed && !newTags.includes(trimmed)) {
+          newTags.push(trimmed);
+        }
+      }
+      setTags(newTags);
+      setTagInput(parts[parts.length - 1]);
+    } else {
+      setTagInput(val);
+    }
+  };
+
+  const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const trimmed = tagInput.trim();
+      if (trimmed && !tags.includes(trimmed)) {
+        setTags([...tags, trimmed]);
+        setTagInput('');
+      }
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter((t) => t !== tagToRemove));
+  };
+
+  // Comma-separated tag auto-handler for Edit Modal
+  const handleEditTagInputChange = (val: string) => {
+    if (!editingProject) return;
+    if (val.includes(',')) {
+      const parts = val.split(',');
+      const currentTags = [...(editingProject.tags || [])];
+      for (let i = 0; i < parts.length - 1; i++) {
+        const trimmed = parts[i].trim();
+        if (trimmed && !currentTags.includes(trimmed)) {
+          currentTags.push(trimmed);
+        }
+      }
+      setEditingProject({ ...editingProject, tags: currentTags });
+      setEditTagInput(parts[parts.length - 1]);
+    } else {
+      setEditTagInput(val);
+    }
+  };
+
+  const handleEditTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!editingProject) return;
+      const trimmed = editTagInput.trim();
+      const currentTags = editingProject.tags || [];
+      if (trimmed && !currentTags.includes(trimmed)) {
+        setEditingProject({ ...editingProject, tags: [...currentTags, trimmed] });
+        setEditTagInput('');
+      }
+    }
+  };
+
+  const handleRemoveEditTag = (tagToRemove: string) => {
+    if (!editingProject) return;
+    const currentTags = editingProject.tags || [];
+    setEditingProject({
+      ...editingProject,
+      tags: currentTags.filter((t) => t !== tagToRemove),
+    });
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !code) return;
+
+    if (endDate && endDate < startDate) {
+      setDateError('Target end date cannot be earlier than start date.');
+      return;
+    }
+
+    // Flush any pending tag in input
+    const finalTags = [...tags];
+    const pendingTag = tagInput.trim();
+    if (pendingTag && !finalTags.includes(pendingTag)) {
+      finalTags.push(pendingTag);
+    }
+
     await api.createProject({
       name,
       code,
       clientId: clientId || clients[0]?.id,
       projectType,
+      startDate,
+      endDate: endDate || undefined,
+      description,
+      tags: finalTags,
     });
+
     setIsCreateOpen(false);
     setName('');
     setCode('');
+    setDescription('');
+    setTags([]);
+    setTagInput('');
+    setDateError('');
     loadData();
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProject) return;
-    await api.updateProject(editingProject.id, editingProject);
+
+    if (editingProject.endDate && editingProject.endDate < editingProject.startDate) {
+      setEditDateError('Target end date cannot be earlier than start date.');
+      return;
+    }
+
+    // Flush any pending tag in input
+    const finalTags = [...(editingProject.tags || [])];
+    const pendingTag = editTagInput.trim();
+    if (pendingTag && !finalTags.includes(pendingTag)) {
+      finalTags.push(pendingTag);
+    }
+
+    await api.updateProject(editingProject.id, {
+      ...editingProject,
+      tags: finalTags,
+    });
     setEditingProject(null);
+    setEditDateError('');
     loadData();
   };
 
@@ -114,7 +236,10 @@ export const ProjectsPage: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setIsCreateOpen(true)}
+          onClick={() => {
+            setDateError('');
+            setIsCreateOpen(true);
+          }}
           className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
@@ -139,7 +264,10 @@ export const ProjectsPage: React.FC = () => {
         {filtered.map((project) => (
           <div
             key={project.id}
-            onClick={() => setEditingProject({ ...project })}
+            onClick={() => {
+              setEditDateError('');
+              setEditingProject({ ...project });
+            }}
             className="glass-panel glass-panel-hover rounded-2xl p-5 flex flex-col justify-between cursor-pointer group border border-slate-800 hover:border-purple-500/40 transition-all duration-200"
           >
             <div>
@@ -161,7 +289,7 @@ export const ProjectsPage: React.FC = () => {
                   <h3 className="text-base font-bold text-white mt-1.5 group-hover:text-purple-300 transition-colors">
                     {project.name}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1 line-clamp-2">{project.description}</p>
+                  <p className="text-xs text-slate-400 mt-1 line-clamp-2">{project.description || 'No description provided.'}</p>
                 </div>
                 <StatusBadge status={project.status} />
               </div>
@@ -172,15 +300,17 @@ export const ProjectsPage: React.FC = () => {
                   <Calendar className="w-3 h-3 text-blue-400" />
                   {project.startDate} to {project.endDate || 'Ongoing'}
                 </span>
-                {project.tags?.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-[10px] px-2 py-0.5 rounded-md bg-slate-900 text-slate-400 border border-slate-800 flex items-center gap-1 font-mono"
-                  >
-                    <Tag className="w-2.5 h-2.5" />
-                    {tag}
-                  </span>
-                ))}
+                {project.tags && project.tags.length > 0 ? (
+                  project.tags.map((t) => (
+                    <span
+                      key={t}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 flex items-center gap-1 font-mono"
+                    >
+                      <Tag className="w-2.5 h-2.5" />
+                      {t}
+                    </span>
+                  ))
+                ) : null}
               </div>
 
               {/* Embedded Members JSONB Roster */}
@@ -321,14 +451,91 @@ export const ProjectsPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Date Pickers with min validation */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={editingProject.startDate}
+                    onChange={(e) => {
+                      setEditDateError('');
+                      setEditingProject({ ...editingProject, startDate: e.target.value });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 [color-scheme:dark]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Target End Date</label>
+                  <input
+                    type="date"
+                    min={editingProject.startDate}
+                    value={editingProject.endDate || ''}
+                    onChange={(e) => {
+                      setEditDateError('');
+                      setEditingProject({ ...editingProject, endDate: e.target.value || undefined });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+
+              {editDateError && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{editDateError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Description</label>
                 <textarea
                   rows={2}
+                  placeholder="Project scope, objectives, SLA constraints..."
                   value={editingProject.description || ''}
                   onChange={(e) => setEditingProject({ ...editingProject, description: e.target.value })}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
                 />
+              </div>
+
+              {/* Comma-Separated Auto Tag Management (No Add button needed) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-300">Project Tags</label>
+                  <span className="text-[11px] text-slate-400">Type comma (<code className="text-purple-400">,</code>) or Enter to add</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. Kubernetes, AWS, ISO27001 (auto-separated by comma)"
+                  value={editTagInput}
+                  onChange={(e) => handleEditTagInputChange(e.target.value)}
+                  onKeyDown={handleEditTagInputKeyDown}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 mb-2"
+                />
+
+                <div className="flex flex-wrap gap-1.5 min-h-6">
+                  {editingProject.tags && editingProject.tags.length > 0 ? (
+                    editingProject.tags.map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/30 text-xs font-mono"
+                      >
+                        <Tag className="w-3 h-3" />
+                        {t}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEditTag(t)}
+                          className="hover:text-rose-400"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-[11px] text-slate-500 italic">No tags added yet. Type with commas above.</span>
+                  )}
+                </div>
               </div>
 
               {/* Member Roster Editor */}
@@ -385,7 +592,7 @@ export const ProjectsPage: React.FC = () => {
                             {emp ? `${emp.firstName} ${emp.lastName}` : m.employee_id}
                           </span>
                           <span className="text-[10px] font-mono text-purple-400 px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">
-                            {m.role}
+                            {m.role.replace(/_/g, ' ')}
                           </span>
                         </div>
                         <button
@@ -425,7 +632,7 @@ export const ProjectsPage: React.FC = () => {
       {/* Create Project Modal */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
-          <div className="glass-panel w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
+          <div className="glass-panel w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <FolderGit2 className="w-5 h-5 text-purple-400" />
@@ -488,6 +695,89 @@ export const ProjectsPage: React.FC = () => {
                   <option value="CLOUD_ARCHITECTURE">Cloud Architecture Setup</option>
                   <option value="SECURITY_AUDIT">Security Hardening & Audit</option>
                 </select>
+              </div>
+
+              {/* Date Selector Row with validation min */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={startDate}
+                    onChange={(e) => {
+                      setDateError('');
+                      setStartDate(e.target.value);
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500 [color-scheme:dark]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Target End Date (Optional)</label>
+                  <input
+                    type="date"
+                    min={startDate}
+                    value={endDate}
+                    onChange={(e) => {
+                      setDateError('');
+                      setEndDate(e.target.value);
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500 [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+
+              {dateError && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{dateError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Project scope, objectives, and deliverables..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
+                />
+              </div>
+
+              {/* Comma-Separated Auto Tag Input (No Add button needed) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-300">Custom Tags</label>
+                  <span className="text-[11px] text-slate-400">Type comma (<code className="text-purple-400">,</code>) or Enter to add</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. AWS, PCI-DSS, K8s (auto-separated by comma)"
+                  value={tagInput}
+                  onChange={(e) => handleTagInputChange(e.target.value)}
+                  onKeyDown={handleTagInputKeyDown}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500 mb-2"
+                />
+
+                <div className="flex flex-wrap gap-1.5 min-h-6">
+                  {tags.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/30 text-xs font-mono"
+                    >
+                      <Tag className="w-2.5 h-2.5" />
+                      {t}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(t)}
+                        className="hover:text-rose-400"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">

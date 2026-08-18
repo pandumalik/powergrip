@@ -8,6 +8,7 @@ import { ProjectModule } from './services/project-service/project.module';
 import { EmployeeModule } from './services/employee-service/employee.module';
 import { InventoryModule } from './services/inventory-service/inventory.module';
 import { AccessModule } from './services/access-service/access.module';
+import { MiscModule } from './services/misc-service/misc.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AccessModule } from './services/access-service/access.module';
     EmployeeModule,
     InventoryModule,
     AccessModule,
+    MiscModule,
   ],
   providers: [AuthGuard],
   exports: [AuthGuard],
