@@ -11,8 +11,10 @@ import {
   History,
   CheckCircle,
   XCircle,
-  AlertTriangle,
   Lock,
+  Edit3,
+  X,
+  Save,
 } from 'lucide-react';
 
 export const AccessManagementPage: React.FC = () => {
@@ -23,6 +25,7 @@ export const AccessManagementPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'matrix' | 'pending' | 'audit'>('matrix');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingGrant, setEditingGrant] = useState<AccessGrant | null>(null);
 
   // Request Form State
   const [inventoryId, setInventoryId] = useState('');
@@ -58,8 +61,16 @@ export const AccessManagementPage: React.FC = () => {
     loadData();
   };
 
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGrant) return;
+    await api.updateAccessGrant(editingGrant.id, editingGrant);
+    setEditingGrant(null);
+    loadData();
+  };
+
   const handleApprove = async (id: string) => {
-    await api.approveAccess(id, 'Approved via PAM Web Portal');
+    await api.approveAccess(id, 'Approved via Web Portal');
     loadData();
   };
 
@@ -83,10 +94,10 @@ export const AccessManagementPage: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <KeyRound className="w-5 h-5 text-amber-400" />
-            Privileged Access Management (PAM) & Ephemeral Grants
+            Access
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Zero-Trust access governance with automated TTL expiration, HashiCorp Vault SSH certificates, and live kill switch.
+            Zero-trust privileged access governance, temporary time-bounded grants, and session audit logs. Click any item to inspect/edit.
           </p>
         </div>
 
@@ -95,7 +106,7 @@ export const AccessManagementPage: React.FC = () => {
           className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
-          Request Timed Access
+          Request Access
         </button>
       </div>
 
@@ -110,7 +121,7 @@ export const AccessManagementPage: React.FC = () => {
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
-          Active Access Matrix ({activeGrants.length})
+          Active Matrix ({activeGrants.length})
         </button>
 
         <button
@@ -122,7 +133,7 @@ export const AccessManagementPage: React.FC = () => {
           }`}
         >
           <ShieldAlert className="w-4 h-4" />
-          Pending Approvals Queue ({pendingGrants.length})
+          Pending Approvals ({pendingGrants.length})
         </button>
 
         <button
@@ -134,7 +145,7 @@ export const AccessManagementPage: React.FC = () => {
           }`}
         >
           <History className="w-4 h-4" />
-          Session Audit Logs ({auditLogs.length})
+          Audit Logs ({auditLogs.length})
         </button>
       </div>
 
@@ -149,21 +160,30 @@ export const AccessManagementPage: React.FC = () => {
                   <th className="px-4 py-3.5">Target Inventory Asset</th>
                   <th className="px-4 py-3.5">Access Level</th>
                   <th className="px-4 py-3.5">Grant Type & Time Window</th>
-                  <th className="px-4 py-3.5 text-right">Kill Switch</th>
+                  <th className="px-4 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                 {activeGrants.map((grant) => (
-                  <tr key={grant.id} className="hover:bg-slate-900/40 transition-colors">
+                  <tr
+                    key={grant.id}
+                    onClick={() => setEditingGrant({ ...grant })}
+                    className="hover:bg-slate-900/60 cursor-pointer transition-colors group"
+                  >
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs text-brand-400">
                           {grant.employee?.firstName?.[0] || 'E'}
                         </div>
                         <div>
-                          <p className="font-bold text-white text-xs">
-                            {grant.employee?.firstName} {grant.employee?.lastName}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-bold text-white text-xs group-hover:text-brand-400 transition-colors">
+                              {grant.employee?.firstName} {grant.employee?.lastName}
+                            </p>
+                            <span className="text-[10px] text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity font-semibold">
+                              <Edit3 className="w-2.5 h-2.5 inline" />
+                            </span>
+                          </div>
                           <p className="text-[11px] text-slate-400 font-mono">{grant.employee?.email}</p>
                         </div>
                       </div>
@@ -184,7 +204,7 @@ export const AccessManagementPage: React.FC = () => {
                       <div className="flex items-center gap-1.5 text-slate-300 font-mono text-xs">
                         <Clock className="w-3.5 h-3.5 text-emerald-400" />
                         {grant.grantType === 'PERMANENT' ? (
-                          <span className="text-cyan-400">Indefinite (Corp VPN)</span>
+                          <span className="text-cyan-400">Indefinite</span>
                         ) : (
                           <span className="text-emerald-400">Valid until {grant.validUntil?.slice(11, 16)} UTC</span>
                         )}
@@ -193,10 +213,14 @@ export const AccessManagementPage: React.FC = () => {
 
                     <td className="px-4 py-4 text-right">
                       <button
-                        onClick={() => handleRevoke(grant.id)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRevoke(grant.id);
+                        }}
                         className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-colors"
                       >
-                        Revoke Grant
+                        Revoke
                       </button>
                     </td>
                   </tr>
@@ -219,7 +243,8 @@ export const AccessManagementPage: React.FC = () => {
             pendingGrants.map((grant) => (
               <div
                 key={grant.id}
-                className="glass-panel rounded-2xl p-5 border border-amber-500/30 shadow-lg shadow-amber-500/5"
+                onClick={() => setEditingGrant({ ...grant })}
+                className="glass-panel glass-panel-hover rounded-2xl p-5 border border-amber-500/30 shadow-lg shadow-amber-500/5 cursor-pointer group"
               >
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                   <div>
@@ -228,9 +253,12 @@ export const AccessManagementPage: React.FC = () => {
                         REQUEST #REQ-{grant.id.slice(-4)}
                       </span>
                       <StatusBadge status={grant.accessLevel} />
+                      <span className="text-[10px] text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity font-semibold flex items-center gap-1">
+                        <Edit3 className="w-3 h-3" /> Click to Review & Edit
+                      </span>
                     </div>
 
-                    <h3 className="text-base font-bold text-white mt-2">
+                    <h3 className="text-base font-bold text-white mt-2 group-hover:text-amber-300 transition-colors">
                       Request for {grant.inventory?.name} ({grant.inventory?.assetTag})
                     </h3>
 
@@ -249,14 +277,22 @@ export const AccessManagementPage: React.FC = () => {
 
                   <div className="flex sm:flex-col gap-2 shrink-0">
                     <button
-                      onClick={() => handleApprove(grant.id)}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleApprove(grant.id);
+                      }}
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all"
                     >
                       <CheckCircle className="w-4 h-4" />
-                      Approve Grant
+                      Approve
                     </button>
                     <button
-                      onClick={() => handleReject(grant.id)}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReject(grant.id);
+                      }}
                       className="px-4 py-2 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-semibold border border-slate-700 hover:border-rose-700/50 flex items-center gap-1.5 transition-all"
                     >
                       <XCircle className="w-4 h-4" />
@@ -298,14 +334,122 @@ export const AccessManagementPage: React.FC = () => {
         </div>
       )}
 
+      {/* Edit Access Grant Modal */}
+      {editingGrant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="glass-panel w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-amber-400" />
+                Review & Edit Access Grant
+              </h3>
+              <button
+                onClick={() => setEditingGrant(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Target Asset</label>
+                <input
+                  type="text"
+                  disabled
+                  value={`${editingGrant.inventory?.name} (${editingGrant.inventory?.assetTag})`}
+                  className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 cursor-not-allowed"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Grant Status</label>
+                  <select
+                    value={editingGrant.status}
+                    onChange={(e) => setEditingGrant({ ...editingGrant, status: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="PENDING">PENDING</option>
+                    <option value="ENDORSED">ENDORSED</option>
+                    <option value="REJECTED">REJECTED</option>
+                    <option value="REVOKED">REVOKED</option>
+                    <option value="EXPIRED">EXPIRED</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Access Level</label>
+                  <select
+                    value={editingGrant.accessLevel}
+                    onChange={(e) => setEditingGrant({ ...editingGrant, accessLevel: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="READ_ONLY">Read Only</option>
+                    <option value="OPERATOR">Operator</option>
+                    <option value="READ_WRITE">Read Write</option>
+                    <option value="ADMIN">Administrator</option>
+                    <option value="ROOT_SUPERADMIN">Root / SuperAdmin</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Justification</label>
+                <textarea
+                  rows={2}
+                  value={editingGrant.justification}
+                  onChange={(e) => setEditingGrant({ ...editingGrant, justification: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Review Notes / Reason</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Authorized by Operations Lead"
+                  value={editingGrant.reviewNotes || ''}
+                  onChange={(e) => setEditingGrant({ ...editingGrant, reviewNotes: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingGrant(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Request Access Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
           <div className="glass-panel w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-              <Lock className="w-5 h-5 text-amber-400" />
-              Request Timed Privileged Access (PAM)
-            </h3>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Lock className="w-5 h-5 text-amber-400" />
+                Request Privileged Access
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             <form onSubmit={handleRequest} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Target Inventory Asset</label>

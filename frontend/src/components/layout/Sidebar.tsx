@@ -20,11 +20,11 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const menuItems = [
     { id: 'dashboard' as NavTab, label: 'Overview', icon: LayoutDashboard },
-    { id: 'clients' as NavTab, label: 'Clients & Contracts', icon: Building2 },
-    { id: 'projects' as NavTab, label: 'Projects & Staffing', icon: FolderGit2 },
-    { id: 'inventories' as NavTab, label: 'Unified CMDB Assets', icon: Server, badge: 'Unified' },
-    { id: 'access' as NavTab, label: 'PAM & Access Approvals', icon: KeyRound, badge: 'Live TTL' },
-    { id: 'employees' as NavTab, label: 'Org Hierarchy & Teams', icon: Users },
+    { id: 'clients' as NavTab, label: 'Clients', icon: Building2 },
+    { id: 'projects' as NavTab, label: 'Projects', icon: FolderGit2 },
+    { id: 'inventories' as NavTab, label: 'Inventory', icon: Server },
+    { id: 'access' as NavTab, label: 'Access', icon: KeyRound },
+    { id: 'employees' as NavTab, label: 'Employees', icon: Users },
   ];
 
   return (
@@ -52,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                className={`w-full flex items-center px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
                   isActive
                     ? 'bg-gradient-to-r from-brand-500/20 to-emerald-500/5 text-brand-400 border border-brand-500/30 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
@@ -62,11 +62,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                   <Icon className={`w-4 h-4 ${isActive ? 'text-brand-400' : 'text-slate-400'}`} />
                   <span>{item.label}</span>
                 </div>
-                {item.badge && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700 font-mono">
-                    {item.badge}
-                  </span>
-                )}
               </button>
             );
           })}

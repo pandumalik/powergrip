@@ -19,9 +19,8 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
 
-// Check if backend is available or use memory mock store
 class ApiClient {
-  private useMock = true; // Defaults to self-contained demo mode
+  private useMock = true;
   private clients: Client[] = [...mockClients];
   private projects: Project[] = [...mockProjects];
   private inventories: InventoryItem[] = [...mockInventories];
@@ -74,6 +73,19 @@ class ApiClient {
     return newClient;
   }
 
+  async updateClient(id: string, data: Partial<Client>): Promise<Client> {
+    const index = this.clients.findIndex((c) => c.id === id);
+    if (index !== -1) {
+      this.clients[index] = {
+        ...this.clients[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.clients[index];
+    }
+    throw new Error('Client not found');
+  }
+
   // ===========================================================================
   // Projects
   // ===========================================================================
@@ -98,14 +110,29 @@ class ApiClient {
       projectType: data.projectType || 'INFRA_MIGRATION',
       status: data.status || 'IN_PROGRESS',
       startDate: data.startDate || new Date().toISOString().split('T')[0],
+      endDate: data.endDate,
+      description: data.description,
       assignedMembers: data.assignedMembers || [],
-      tags: data.tags || ['Cloud', 'Managed'],
+      tags: data.tags || [],
       client,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     this.projects.unshift(newProj);
     return newProj;
+  }
+
+  async updateProject(id: string, data: Partial<Project>): Promise<Project> {
+    const index = this.projects.findIndex((p) => p.id === id);
+    if (index !== -1) {
+      this.projects[index] = {
+        ...this.projects[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.projects[index];
+    }
+    throw new Error('Project not found');
   }
 
   // ===========================================================================
@@ -144,6 +171,19 @@ class ApiClient {
     };
     this.inventories.unshift(newInv);
     return newInv;
+  }
+
+  async updateInventory(id: string, data: Partial<InventoryItem>): Promise<InventoryItem> {
+    const index = this.inventories.findIndex((i) => i.id === id);
+    if (index !== -1) {
+      this.inventories[index] = {
+        ...this.inventories[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.inventories[index];
+    }
+    throw new Error('Inventory not found');
   }
 
   // ===========================================================================
@@ -203,6 +243,19 @@ class ApiClient {
     });
 
     return newGrant;
+  }
+
+  async updateAccessGrant(id: string, data: Partial<AccessGrant>): Promise<AccessGrant> {
+    const index = this.accessGrants.findIndex((g) => g.id === id);
+    if (index !== -1) {
+      this.accessGrants[index] = {
+        ...this.accessGrants[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.accessGrants[index];
+    }
+    throw new Error('Access grant not found');
   }
 
   async approveAccess(grantId: string, notes?: string): Promise<AccessGrant> {
@@ -276,6 +329,19 @@ class ApiClient {
     } catch {
       return this.employees;
     }
+  }
+
+  async updateEmployee(id: string, data: Partial<Employee>): Promise<Employee> {
+    const index = this.employees.findIndex((e) => e.id === id);
+    if (index !== -1) {
+      this.employees[index] = {
+        ...this.employees[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.employees[index];
+    }
+    throw new Error('Employee not found');
   }
 
   async getDepartments(): Promise<Department[]> {

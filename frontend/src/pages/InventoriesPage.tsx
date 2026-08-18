@@ -7,13 +7,11 @@ import {
   Server,
   Plus,
   Search,
-  Filter,
   Code2,
-  Cpu,
-  Layers,
   Globe,
-  Radio,
-  Building,
+  Edit3,
+  X,
+  Save,
 } from 'lucide-react';
 
 export const InventoriesPage: React.FC = () => {
@@ -29,6 +27,7 @@ export const InventoriesPage: React.FC = () => {
 
   // Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedJson, setSelectedJson] = useState<{ title: string; data: any } | null>(null);
 
   // Form State
@@ -74,6 +73,14 @@ export const InventoriesPage: React.FC = () => {
     loadData();
   };
 
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    await api.updateInventory(editingItem.id, editingItem);
+    setEditingItem(null);
+    loadData();
+  };
+
   const filtered = inventories.filter((inv) => {
     let match = true;
     if (scopeFilter !== 'ALL') match = match && inv.assetScope === scopeFilter;
@@ -98,10 +105,10 @@ export const InventoriesPage: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Server className="w-5 h-5 text-emerald-400" />
-            Unified CMDB Infrastructure Inventory
+            Inventory
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Single-table multi-cloud CMDB managing VMs, Cloud Accounts, Kubernetes, and VPN Tunnels.
+            Infrastructure assets across cloud providers, on-premise servers, and VPN networks. Click any row to edit.
           </p>
         </div>
 
@@ -110,7 +117,7 @@ export const InventoriesPage: React.FC = () => {
           className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
-          Register CMDB Asset
+          Register Asset
         </button>
       </div>
 
@@ -182,12 +189,23 @@ export const InventoriesPage: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {filtered.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-900/40 transition-colors">
+                <tr
+                  key={item.id}
+                  onClick={() => setEditingItem({ ...item })}
+                  className="hover:bg-slate-900/60 cursor-pointer transition-colors group"
+                >
                   <td className="px-5 py-4">
-                    <span className="font-mono text-[10px] text-emerald-400 font-bold block">
-                      {item.assetTag}
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] text-emerald-400 font-bold">
+                        {item.assetTag}
+                      </span>
+                      <span className="text-[10px] text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity font-semibold flex items-center gap-1">
+                        <Edit3 className="w-3 h-3" /> Edit
+                      </span>
+                    </div>
+                    <span className="font-bold text-white text-xs block mt-0.5 group-hover:text-emerald-400 transition-colors">
+                      {item.name}
                     </span>
-                    <span className="font-bold text-white text-xs">{item.name}</span>
                   </td>
 
                   <td className="px-4 py-4">
@@ -222,7 +240,9 @@ export const InventoriesPage: React.FC = () => {
 
                   <td className="px-4 py-4 text-right">
                     <button
-                      onClick={() =>
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setSelectedJson({
                           title: `JSON Specs: ${item.name}`,
                           data: {
@@ -230,12 +250,12 @@ export const InventoriesPage: React.FC = () => {
                             connectionInfo: item.connectionInfo,
                             tags: item.tags,
                           },
-                        })
-                      }
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-medium text-xs flex items-center gap-1.5 ml-auto transition-colors"
+                        });
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-medium text-xs inline-flex items-center gap-1.5 transition-colors"
                     >
                       <Code2 className="w-3.5 h-3.5 text-brand-400" />
-                      Inspect Specs
+                      Specs
                     </button>
                   </td>
                 </tr>
@@ -244,6 +264,148 @@ export const InventoriesPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Edit Inventory Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="glass-panel w-full max-w-xl rounded-2xl p-6 border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-emerald-400" />
+                Edit Asset: {editingItem.name}
+              </h3>
+              <button
+                onClick={() => setEditingItem(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Asset Hostname / Identifier</label>
+                <input
+                  type="text"
+                  required
+                  value={editingItem.name}
+                  onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Asset Tag</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingItem.assetTag}
+                    onChange={(e) => setEditingItem({ ...editingItem, assetTag: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Status</label>
+                  <select
+                    value={editingItem.status}
+                    onChange={(e) => setEditingItem({ ...editingItem, status: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="MAINTENANCE">MAINTENANCE</option>
+                    <option value="PROVISIONING">PROVISIONING</option>
+                    <option value="DECOMMISSIONED">DECOMMISSIONED</option>
+                    <option value="ISOLATED">ISOLATED</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Scope</label>
+                  <select
+                    value={editingItem.assetScope}
+                    onChange={(e) => setEditingItem({ ...editingItem, assetScope: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="CLIENT">Client Dedicated</option>
+                    <option value="INTERNAL">Internal MSP Asset</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Asset Type</label>
+                  <select
+                    value={editingItem.assetType}
+                    onChange={(e) => setEditingItem({ ...editingItem, assetType: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="VIRTUAL_MACHINE">Virtual Machine</option>
+                    <option value="KUBERNETES">Kubernetes Cluster</option>
+                    <option value="DATABASE">Database Cluster</option>
+                    <option value="VPN_GATEWAY">VPN Gateway</option>
+                    <option value="CLOUD_ACCOUNT">Cloud Account</option>
+                    <option value="STORAGE_BUCKET">Storage Bucket</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Provider</label>
+                  <select
+                    value={editingItem.provider}
+                    onChange={(e) => setEditingItem({ ...editingItem, provider: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="GCP">Google Cloud (GCP)</option>
+                    <option value="AWS">Amazon AWS</option>
+                    <option value="ALI_CLOUD">Alibaba Cloud</option>
+                    <option value="DIGITAL_OCEAN">DigitalOcean</option>
+                    <option value="ON_PREMISE">On-Premise / Metal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Region</label>
+                  <input
+                    type="text"
+                    value={editingItem.region}
+                    onChange={(e) => setEditingItem({ ...editingItem, region: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Primary IP Address</label>
+                <input
+                  type="text"
+                  value={editingItem.primaryIp || ''}
+                  onChange={(e) => setEditingItem({ ...editingItem, primaryIp: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* JSON Specs Viewer Modal */}
       {selectedJson && (
@@ -259,10 +421,15 @@ export const InventoriesPage: React.FC = () => {
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
           <div className="glass-panel w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-              <Server className="w-5 h-5 text-emerald-400" />
-              Register Unified CMDB Asset
-            </h3>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Server className="w-5 h-5 text-emerald-400" />
+                Register Inventory Asset
+              </h3>
+              <button onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Asset Hostname / Identifier</label>
