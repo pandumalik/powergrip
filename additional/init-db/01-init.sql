@@ -217,6 +217,18 @@ CREATE TABLE IF NOT EXISTS access_audit_logs (
 );
 
 -- =============================================================================
+-- 10.1 MISC Store Table (Dynamic taxonomy, key-value pairs)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS misc (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key VARCHAR(128) NOT NULL UNIQUE,
+    value JSONB NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
 -- 11. Performance Indexes (B-Tree, GIN, GiST)
 -- =============================================================================
 CREATE INDEX IF NOT EXISTS idx_clients_status ON clients(status);

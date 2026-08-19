@@ -33,6 +33,13 @@ export const AccessManagementPage: React.FC = () => {
   const [durationHours, setDurationHours] = useState(4);
   const [justification, setJustification] = useState('');
 
+  const resetRequestForm = () => {
+    setInventoryId('');
+    setAccessLevel('READ_WRITE');
+    setDurationHours(4);
+    setJustification('');
+  };
+
   const loadData = () => {
     api.getAccessGrants().then(setGrants);
     api.getInventories().then(setInventories);
@@ -48,7 +55,7 @@ export const AccessManagementPage: React.FC = () => {
     e.preventDefault();
     if (!inventoryId || !justification) return;
 
-    await api.requestAccess({
+    const created = await api.requestAccess({
       inventoryId,
       accessLevel,
       grantType: 'TEMPORARY_TIMED',
@@ -56,32 +63,45 @@ export const AccessManagementPage: React.FC = () => {
       justification,
     });
 
+    setGrants((prev) => [created, ...prev]);
     setIsModalOpen(false);
-    setJustification('');
-    loadData();
+    resetRequestForm();
+    await loadData();
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingGrant) return;
-    await api.updateAccessGrant(editingGrant.id, editingGrant);
+    const updated = await api.updateAccessGrant(editingGrant.id, editingGrant);
+    setGrants((prev) =>
+      prev.map((g) => (g.id === updated.id ? { ...g, ...updated } : g)),
+    );
     setEditingGrant(null);
-    loadData();
+    await loadData();
   };
 
   const handleApprove = async (id: string) => {
-    await api.approveAccess(id, 'Approved via Web Portal');
-    loadData();
+    const approved = await api.approveAccess(id, 'Approved via Web Portal');
+    setGrants((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...approved } : g)),
+    );
+    await loadData();
   };
 
   const handleReject = async (id: string) => {
-    await api.rejectAccess(id, 'Declined by Administrator');
-    loadData();
+    const rejected = await api.rejectAccess(id, 'Declined by Administrator');
+    setGrants((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...rejected } : g)),
+    );
+    await loadData();
   };
 
   const handleRevoke = async (id: string) => {
-    await api.revokeAccess(id, 'Emergency administrative revocation');
-    loadData();
+    const revoked = await api.revokeAccess(id, 'Emergency administrative revocation');
+    setGrants((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...revoked } : g)),
+    );
+    await loadData();
   };
 
   const pendingGrants = grants.filter((g) => g.status === 'PENDING' || g.status === 'ENDORSED');
@@ -446,7 +466,7 @@ export const AccessManagementPage: React.FC = () => {
                 <Lock className="w-5 h-5 text-amber-400" />
                 Request Privileged Access
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => { setIsModalOpen(false); resetRequestForm(); }} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -513,7 +533,7 @@ export const AccessManagementPage: React.FC = () => {
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => { setIsModalOpen(false); resetRequestForm(); }}
                   className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
                 >
                   Cancel

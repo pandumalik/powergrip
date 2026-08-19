@@ -101,4 +101,14 @@ export class EmployeeService {
       .returning();
     return newDept;
   }
+
+  async delete(id: string) {
+    const [deleted] = await this.dbService.db
+      .delete(employees)
+      .where(eq(employees.id, id))
+      .returning();
+
+    if (!deleted) throw new NotFoundException(`Employee ${id} not found`);
+    return deleted;
+  }
 }

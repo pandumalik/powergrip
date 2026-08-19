@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { AuthProvider } from '@/context/AuthContext';
+import { ThemeProvider } from '@/context/ThemeContext';
+import { TenantConfigProvider } from '@/context/TenantConfigContext';
 import { Sidebar, NavTab } from '@/components/layout/Sidebar';
 import { Navbar } from '@/components/layout/Navbar';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -13,27 +15,31 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
 
   return (
-    <AuthProvider>
-      <div className="flex min-h-screen bg-[#0B0F17] text-slate-100 selection:bg-brand-500 selection:text-white">
-        {/* Sticky Left Sidebar */}
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <TenantConfigProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <div className="flex min-h-screen bg-[#0B0F17] text-slate-100 selection:bg-brand-500 selection:text-white transition-colors duration-200">
+            {/* Sticky Left Sidebar */}
+            <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-        {/* Main Workspace Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Top Navbar */}
-          <Navbar />
+            {/* Main Workspace Area */}
+            <div className="flex-1 flex flex-col min-w-0">
+              {/* Top Navbar */}
+              <Navbar />
 
-          {/* Page View Body */}
-          <main className="p-6 md:p-8 flex-1 max-w-7xl w-full mx-auto animate-in fade-in duration-200">
-            {activeTab === 'dashboard' && <DashboardPage setActiveTab={setActiveTab} />}
-            {activeTab === 'clients' && <ClientsPage />}
-            {activeTab === 'projects' && <ProjectsPage />}
-            {activeTab === 'inventories' && <InventoriesPage />}
-            {activeTab === 'access' && <AccessManagementPage />}
-            {activeTab === 'employees' && <OrgHierarchyPage />}
-          </main>
-        </div>
-      </div>
-    </AuthProvider>
+              {/* Page View Body */}
+              <main className="p-6 md:p-8 flex-1 max-w-7xl w-full mx-auto animate-in fade-in duration-200">
+                {activeTab === 'dashboard' && <DashboardPage setActiveTab={setActiveTab} />}
+                {activeTab === 'clients' && <ClientsPage />}
+                {activeTab === 'projects' && <ProjectsPage />}
+                {activeTab === 'inventories' && <InventoriesPage />}
+                {activeTab === 'access' && <AccessManagementPage />}
+                {activeTab === 'employees' && <OrgHierarchyPage />}
+              </main>
+            </div>
+          </div>
+        </AuthProvider>
+      </ThemeProvider>
+    </TenantConfigProvider>
   );
 };

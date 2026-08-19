@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
 import { ClientService } from './client.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -28,6 +28,12 @@ export class ClientController {
   @Roles('ADMIN', 'PROJECT_MANAGER')
   async update(@Param('id') id: string, @Body() updateClientDto: any) {
     return this.clientService.update(id, updateClientDto);
+  }
+
+  @Delete(':id')
+  @Roles('ADMIN')
+  async delete(@Param('id') id: string) {
+    return this.clientService.delete(id);
   }
 
   @Post(':id/contracts')

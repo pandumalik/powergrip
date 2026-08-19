@@ -19,7 +19,7 @@ export class AuthGuard implements CanActivate {
     const realm =
       this.configService?.get<string>('keycloak.realm') ||
       process.env.KEYCLOAK_REALM ||
-      'vcams-realm';
+      'powergrip-realm';
 
     try {
       this.jwks = createRemoteJWKSet(
@@ -43,7 +43,7 @@ export class AuthGuard implements CanActivate {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       request.user = {
         userId: 'e1111111-1111-1111-1111-111111111111',
-        email: 'admin@vcams.internal',
+        email: 'admin@powergrip.internal',
         name: 'Super Admin (Dev Context)',
         roles: ['ADMIN', 'SECURITY_OFFICER', 'SRE_LEAD', 'PROJECT_MANAGER', 'DEVOPS_ENGINEER'],
       };
@@ -65,7 +65,7 @@ export class AuthGuard implements CanActivate {
       } else {
         request.user = {
           userId: 'e1111111-1111-1111-1111-111111111111',
-          email: 'admin@vcams.internal',
+          email: 'admin@powergrip.internal',
           name: 'Super Admin',
           roles: ['ADMIN'],
         };
@@ -80,7 +80,7 @@ export class AuthGuard implements CanActivate {
       // In dev mode allow graceful pass-through
       request.user = {
         userId: 'e1111111-1111-1111-1111-111111111111',
-        email: 'dev@vcams.internal',
+        email: 'dev@powergrip.internal',
         name: 'Dev User',
         roles: ['ADMIN', 'DEVOPS_ENGINEER'],
       };

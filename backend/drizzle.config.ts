@@ -8,6 +8,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgresql://vcams_user:vcams_secure_password_2026@localhost:5432/vcams_db',
+    url: process.env.DATABASE_URL || 'postgresql://powergrip_user:powergrip_secure_password_2026@localhost:5432/powergrip_db',
   },
 });

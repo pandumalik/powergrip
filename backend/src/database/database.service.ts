@@ -17,7 +17,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     const connectionString =
       this.configService?.get<string>('database.url') ||
       process.env.DATABASE_URL ||
-      'postgresql://vcams_user:vcams_secure_password_2026@localhost:5432/vcams_db';
+      'postgresql://powergrip_user:powergrip_secure_password_2026@localhost:5432/powergrip_db';
 
     const pg = typeof postgres === 'function' ? postgres : (postgres as any).default;
     this.client = pg(connectionString, { max: 10, connect_timeout: 5 });

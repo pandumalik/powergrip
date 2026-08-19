@@ -42,6 +42,15 @@ export const ClientsPage: React.FC = () => {
   const [country, setCountry] = useState('Indonesia');
   const [city, setCity] = useState('Jakarta');
 
+  const resetCreateForm = () => {
+    setName('');
+    setCode('');
+    setIndustry(industries[0] || '');
+    setBillingEmail('');
+    setCountry('Indonesia');
+    setCity('Jakarta');
+  };
+
   const loadData = async () => {
     const [cls, inds] = await Promise.all([api.getClients(), api.getIndustries()]);
     setClients(cls);
@@ -79,7 +88,7 @@ export const ClientsPage: React.FC = () => {
       await api.addIndustry(selectedIndustry);
     }
 
-    await api.createClient({
+    const created = await api.createClient({
       name,
       code,
       industry: selectedIndustry,
@@ -88,10 +97,10 @@ export const ClientsPage: React.FC = () => {
       city,
     });
 
+    setClients((prev) => [created, ...prev]);
     setIsCreateOpen(false);
-    setName('');
-    setCode('');
-    loadData();
+    resetCreateForm();
+    await loadData();
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -105,13 +114,16 @@ export const ClientsPage: React.FC = () => {
       await api.addIndustry(selectedIndustry);
     }
 
-    await api.updateClient(editingClient.id, {
+    const updated = await api.updateClient(editingClient.id, {
       ...editingClient,
       industry: selectedIndustry,
     });
 
+    setClients((prev) =>
+      prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
+    );
     setEditingClient(null);
-    loadData();
+    await loadData();
   };
 
   const filtered = clients.filter((c) => {
@@ -491,7 +503,7 @@ export const ClientsPage: React.FC = () => {
                 <Building2 className="w-5 h-5 text-brand-400" />
                 Onboard New Enterprise Client
               </h3>
-              <button onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => { setIsCreateOpen(false); resetCreateForm(); }} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -570,7 +582,7 @@ export const ClientsPage: React.FC = () => {
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsCreateOpen(false)}
+                  onClick={() => { setIsCreateOpen(false); resetCreateForm(); }}
                   className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
                 >
                   Cancel

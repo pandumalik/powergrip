@@ -215,4 +215,25 @@ export class AccessService {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(accessAuditLogs.createdAt));
   }
+
+  async update(id: string, data: any) {
+    const [updated] = await this.dbService.db
+      .update(accessGrants)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(accessGrants.id, id))
+      .returning();
+
+    if (!updated) throw new NotFoundException(`Access grant ${id} not found`);
+    return updated;
+  }
+
+  async delete(id: string) {
+    const [deleted] = await this.dbService.db
+      .delete(accessGrants)
+      .where(eq(accessGrants.id, id))
+      .returning();
+
+    if (!deleted) throw new NotFoundException(`Access grant ${id} not found`);
+    return deleted;
+  }
 }

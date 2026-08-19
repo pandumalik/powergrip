@@ -1,0 +1,24 @@
+{
+  "appName": "PowerGrip",
+  "tagline": "Enterprise MSP & PAM Asset Matrix",
+  "version": "2.0.0",
+  "company": {
+    "name": "PowerGrip Technologies Inc.",
+    "legalEntity": "PowerGrip Global Corp.",
+    "supportEmail": "ops@powergrip.internal",
+    "contactPhone": "+1 (800) 555-GRIP",
+    "location": "Jakarta & Singapore",
+    "headquarters": "Jakarta Selatan, Indonesia",
+    "website": "https://powergrip.io"
+  },
+  "branding": {
+    "logoText": "PowerGrip",
+    "primaryColor": "#22c55e",
+    "secondaryColor": "#3b82f6",
+    "accentColor": "#8b5cf6"
+  },
+  "footer": {
+    "securityBadge": "PAM Zero-Trust Architecture",
+    "complianceText": "Postgres 17 • Keycloak 26 • Vault CA"
+  }
+}

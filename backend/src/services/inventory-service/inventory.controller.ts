@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -29,6 +29,18 @@ export class InventoryController {
     return this.inventoryService.create(createInventoryDto);
   }
 
+  @Post('discover-cloud')
+  @Roles('ADMIN', 'SRE_LEAD', 'DEVOPS_ENGINEER')
+  async discoverCloudAssets(@Body() payload: { provider: 'GCP' | 'AWS' | 'ALI_CLOUD' | 'AZURE'; credentials: any }) {
+    return this.inventoryService.discoverCloudAssets(payload);
+  }
+
+  @Post('bulk-import')
+  @Roles('ADMIN', 'SRE_LEAD', 'DEVOPS_ENGINEER')
+  async bulkImport(@Body() payload: { items: any[] }) {
+    return this.inventoryService.bulkImport(payload);
+  }
+
   @Put(':id')
   @Roles('ADMIN', 'SRE_LEAD')
   async update(@Param('id') id: string, @Body() updateInventoryDto: any) {
@@ -51,5 +63,11 @@ export class InventoryController {
     @Body('status') status: any,
   ) {
     return this.inventoryService.updateStatus(id, status);
+  }
+
+  @Delete(':id')
+  @Roles('ADMIN', 'SRE_LEAD')
+  async delete(@Param('id') id: string) {
+    return this.inventoryService.delete(id);
   }
 }

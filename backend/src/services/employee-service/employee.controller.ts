@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Body, Param, UseGuards, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, Inject } from '@nestjs/common';
 import { EmployeeService } from './employee.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -48,5 +48,11 @@ export class EmployeeController {
     @Body('exitDate') exitDate?: string,
   ) {
     return this.employeeService.offboard(id, exitDate);
+  }
+
+  @Delete(':id')
+  @Roles('ADMIN')
+  async delete(@Param('id') id: string) {
+    return this.employeeService.delete(id);
   }
 }

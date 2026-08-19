@@ -1,166 +1,391 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '@/services/api';
 import { Employee, Department } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import {
   Users,
-  GitFork,
-  Building,
+  Search,
+  ChevronLeft,
+  ChevronRight,
   UserX,
   Mail,
-  ChevronRight,
   Edit3,
   X,
   Save,
-  Plus,
+  Building,
+  Filter,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const OrgHierarchyPage: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [search, setSearch] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+
+  // Edit Modal State
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
-  const loadData = () => {
-    api.getEmployees().then(setEmployees);
-    api.getDepartments().then(setDepartments);
+  const loadData = async () => {
+    const [emps, depts] = await Promise.all([api.getEmployees(), api.getDepartments()]);
+    setEmployees(emps);
+    setDepartments(depts);
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
+  // Format display name: if full name > 20 characters, use firstName only
+  const formatDisplayName = (firstName: string, lastName: string) => {
+    const full = `${firstName} ${lastName}`.trim();
+    if (full.length > 20) {
+      return firstName;
+    }
+    return full;
+  };
+
+  // Filter employees based on search, department, and status
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((emp) => {
+      let match = true;
+      if (departmentFilter !== 'ALL') {
+        match = match && emp.departmentId === departmentFilter;
+      }
+      if (statusFilter !== 'ALL') {
+        match = match && emp.employmentStatus === statusFilter;
+      }
+      if (search) {
+        const s = search.toLowerCase();
+        const dept = departments.find((d) => d.id === emp.departmentId);
+        match =
+          match &&
+          (emp.firstName.toLowerCase().includes(s) ||
+            emp.lastName.toLowerCase().includes(s) ||
+            emp.employeeNumber.toLowerCase().includes(s) ||
+            emp.email.toLowerCase().includes(s) ||
+            emp.jobTitle.toLowerCase().includes(s) ||
+            (dept?.name || '').toLowerCase().includes(s));
+      }
+      return match;
+    });
+  }, [employees, departments, search, departmentFilter, statusFilter]);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, departmentFilter, statusFilter]);
+
+  // Pagination calculation
+  const totalItems = filteredEmployees.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedEmployees = filteredEmployees.slice(startIndex, startIndex + pageSize);
+
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEmployee) return;
-    await api.updateEmployee(editingEmployee.id, editingEmployee);
+    const updated = await api.updateEmployee(editingEmployee.id, editingEmployee);
+    // Instant UI state update
+    setEmployees((prev) =>
+      prev.map((emp) => (emp.id === updated.id ? { ...emp, ...updated } : emp)),
+    );
     setEditingEmployee(null);
-    loadData();
+    await loadData();
   };
 
   const handleOffboard = async (id: string, name: string) => {
     if (window.confirm(`Initiate instant offboarding and access revocation for ${name}?`)) {
-      await api.updateEmployee(id, { employmentStatus: 'TERMINATED' });
+      const updated = await api.updateEmployee(id, { employmentStatus: 'TERMINATED' });
+      // Instant UI state update
+      setEmployees((prev) =>
+        prev.map((emp) => (emp.id === id ? { ...emp, ...updated } : emp)),
+      );
       await api.getAccessGrants().then((grants) => {
         const active = grants.filter((g) => g.employeeId === id && g.status === 'ACTIVE');
         active.forEach((g) => api.revokeAccess(g.id, 'Employee Terminated/Offboarded'));
       });
-      loadData();
+      await loadData();
     }
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <Users className="w-5 h-5 text-blue-400" />
-          Employees
-        </h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Visualizing reporting hierarchy tree powered by PostgreSQL 17 <code className="text-brand-400 font-mono">ltree</code> indexes. Click any employee card to edit.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <Users className="w-5 h-5 text-blue-400" />
+            Employees & Staff Directory
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Browse and manage all {employees.length} organization staff. Click any row to edit details.
+          </p>
+        </div>
       </div>
 
-      {/* Departments Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Departments Overview Metric Pills */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {departments.map((dept) => {
           const count = employees.filter((e) => e.departmentId === dept.id).length;
           return (
-            <div key={dept.id} className="glass-panel rounded-2xl p-4 border border-slate-800">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                <Building className="w-4 h-4 text-emerald-400" />
-                {dept.name}
+            <div
+              key={dept.id}
+              onClick={() => setDepartmentFilter(departmentFilter === dept.id ? 'ALL' : dept.id)}
+              className={`glass-panel p-3.5 rounded-xl border transition-all cursor-pointer ${
+                departmentFilter === dept.id
+                  ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-500/10'
+                  : 'border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-300 truncate">{dept.name}</span>
+                <Building className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               </div>
-              <p className="text-2xl font-bold text-white mt-2">{count} Staff</p>
-              <span className="text-[10px] font-mono text-slate-500 uppercase">{dept.code}</span>
+              <div className="flex items-baseline justify-between mt-1">
+                <span className="text-lg font-bold text-white">{count}</span>
+                <span className="text-[10px] font-mono text-slate-500">{dept.code}</span>
+              </div>
             </div>
           );
         })}
       </div>
 
-      {/* Employee Tree Cards */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          <GitFork className="w-4 h-4 text-brand-400" />
-          Staff Directory & Line Management
-        </h3>
+      {/* Search & Filter Toolbar */}
+      <div className="glass-panel p-3.5 rounded-2xl flex flex-col md:flex-row gap-3 border border-slate-800">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+          <input
+            type="text"
+            placeholder="Search by name, employee ID (EMP-...), email, or job title..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-brand-500"
+          />
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {employees.map((emp) => {
-            const manager = employees.find((e) => e.id === emp.managerId);
-            return (
-              <div
-                key={emp.id}
-                onClick={() => setEditingEmployee({ ...emp })}
-                className="glass-panel glass-panel-hover rounded-2xl p-5 flex flex-col justify-between cursor-pointer group border border-slate-800 hover:border-blue-500/40 transition-all duration-200"
-              >
-                <div>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 flex items-center justify-center font-bold text-brand-400">
-                        {emp.firstName[0]}
-                        {emp.lastName[0]}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors">
-                            {emp.firstName} {emp.lastName}
-                          </h4>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                            {emp.employeeNumber}
-                          </span>
-                          <span className="text-[10px] text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity font-semibold flex items-center gap-0.5">
-                            <Edit3 className="w-2.5 h-2.5" /> Edit
-                          </span>
-                        </div>
-                        <p className="text-xs text-brand-400 font-medium">{emp.jobTitle}</p>
-                      </div>
-                    </div>
-                    <StatusBadge status={emp.employmentStatus} />
-                  </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-xl px-2">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+              className="bg-transparent text-slate-300 text-xs py-2 focus:outline-none"
+            >
+              <option value="ALL">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-                  {/* Hierarchy Path Badge */}
-                  <div className="mt-4 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs">
-                    <span className="text-[10px] font-mono text-slate-500 block uppercase font-semibold mb-1">
-                      Postgres ltree Path:
-                    </span>
-                    <span className="font-mono text-xs text-emerald-400 break-all">
-                      {emp.hierarchyPath || emp.employeeNumber}
-                    </span>
-                  </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-brand-500"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="PROBATION">Probation</option>
+            <option value="ON_LEAVE">On Leave</option>
+            <option value="TERMINATED">Terminated</option>
+            <option value="RESIGNED">Resigned</option>
+          </select>
+        </div>
+      </div>
 
-                  {/* Manager and Contact */}
-                  <div className="mt-3 space-y-1 text-xs text-slate-400">
-                    <p className="flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5 text-slate-500" />
-                      {emp.email}
-                    </p>
-                    <p className="flex items-center gap-1.5">
-                      <ChevronRight className="w-3.5 h-3.5 text-blue-400" />
-                      Reports to: <span className="text-slate-300 font-semibold">{manager ? `${manager.firstName} ${manager.lastName}` : 'Board / Direct'}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-[11px] text-slate-500">Joined: {emp.joinDate}</span>
-                  {emp.employmentStatus === 'ACTIVE' && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOffboard(emp.id, `${emp.firstName} ${emp.lastName}`);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold flex items-center gap-1 transition-colors"
+      {/* Consistent 2-Line Employee List Table */}
+      <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+              <tr>
+                <th className="px-5 py-3.5 min-w-[220px]">Name & ID</th>
+                <th className="px-4 py-3.5 min-w-[220px]">Job Title & Hierarchy</th>
+                <th className="px-4 py-3.5 min-w-[200px]">Email & Verification</th>
+                <th className="px-4 py-3.5 min-w-[180px]">Department & Manager</th>
+                <th className="px-4 py-3.5 min-w-[120px]">Status</th>
+                <th className="px-4 py-3.5 text-right min-w-[100px]">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-slate-300">
+              {paginatedEmployees.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-5 py-12 text-center text-slate-500">
+                    No employees matching the search criteria.
+                  </td>
+                </tr>
+              ) : (
+                paginatedEmployees.map((emp) => {
+                  const dept = departments.find((d) => d.id === emp.departmentId);
+                  const manager = employees.find((e) => e.id === emp.managerId);
+                  const displayName = formatDisplayName(emp.firstName, emp.lastName);
+                  return (
+                    <tr
+                      key={emp.id}
+                      onClick={() => setEditingEmployee({ ...emp })}
+                      className="hover:bg-slate-900/60 cursor-pointer transition-colors group h-[68px]"
                     >
-                      <UserX className="w-3.5 h-3.5" />
-                      Offboard
-                    </button>
+                      {/* Column 1: Name & ID (Fixed 2 lines) */}
+                      <td className="px-5 py-3 min-w-[220px]">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-brand-400 shrink-0 group-hover:border-blue-500/40 transition-colors">
+                            {emp.firstName[0]}
+                            {emp.lastName[0]}
+                          </div>
+                          <div className="min-w-0">
+                            {/* Line 1 */}
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="font-bold text-white text-xs group-hover:text-blue-400 transition-colors truncate"
+                                title={`${emp.firstName} ${emp.lastName}`}
+                              >
+                                {displayName}
+                              </span>
+                              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap shrink-0 leading-none">
+                                {emp.employeeNumber}
+                              </span>
+                            </div>
+                            {/* Line 2 */}
+                            <span className="text-[10px] text-slate-500 block truncate mt-0.5">
+                              Joined {emp.joinDate}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Column 2: Job Title & Hierarchy (Fixed 2 lines) */}
+                      <td className="px-4 py-3 min-w-[220px]">
+                        {/* Line 1 */}
+                        <p className="font-semibold text-slate-200 text-xs truncate max-w-[210px]" title={emp.jobTitle}>
+                          {emp.jobTitle}
+                        </p>
+                        {/* Line 2 */}
+                        <p className="text-[10px] font-mono text-emerald-400 truncate max-w-[210px] mt-0.5" title={emp.hierarchyPath}>
+                          {emp.hierarchyPath || emp.employeeNumber}
+                        </p>
+                      </td>
+
+                      {/* Column 3: Email & Verification (Fixed 2 lines) */}
+                      <td className="px-4 py-3 min-w-[200px]">
+                        {/* Line 1 */}
+                        <span className="text-slate-300 font-mono text-xs flex items-center gap-1.5 truncate">
+                          <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span className="truncate">{emp.email}</span>
+                        </span>
+                        {/* Line 2 */}
+                        <span className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                          <ShieldCheck className="w-3 h-3 text-emerald-500/70 shrink-0" />
+                          Corporate SSO Identity
+                        </span>
+                      </td>
+
+                      {/* Column 4: Department & Manager (Fixed 2 lines) */}
+                      <td className="px-4 py-3 min-w-[180px]">
+                        {/* Line 1 */}
+                        <span className="inline-flex items-center gap-1 text-slate-300 text-xs truncate max-w-[170px]">
+                          <Building className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span className="truncate">{dept?.name || 'Unassigned'}</span>
+                        </span>
+                        {/* Line 2 */}
+                        <span className="text-[10px] text-slate-500 block truncate mt-0.5">
+                          {manager ? `Reports to: ${manager.firstName} ${manager.lastName}` : 'Reports to: Board / Direct'}
+                        </span>
+                      </td>
+
+                      {/* Column 5: Status (Fixed 2 lines) */}
+                      <td className="px-4 py-3 min-w-[120px]">
+                        {/* Line 1 */}
+                        <div>
+                          <StatusBadge status={emp.employmentStatus} />
+                        </div>
+                        {/* Line 2 */}
+                        <span className="text-[10px] text-slate-500 block mt-0.5">
+                          Full-Time Staff
+                        </span>
+                      </td>
+
+                      {/* Column 6: Actions (Offboard only, click row to edit) */}
+                      <td className="px-4 py-3 text-right min-w-[100px]">
+                        {emp.employmentStatus === 'ACTIVE' ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOffboard(emp.id, `${emp.firstName} ${emp.lastName}`);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-medium inline-flex items-center gap-1 transition-colors"
+                          >
+                            <UserX className="w-3.5 h-3.5" />
+                            Offboard
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 italic">Offboarded</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Footer (10 items per page) */}
+        <div className="px-5 py-3 bg-slate-900/60 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+          <div>
+            Showing <span className="font-semibold text-white">{totalItems === 0 ? 0 : startIndex + 1}</span> to{' '}
+            <span className="font-semibold text-white">{Math.min(startIndex + pageSize, totalItems)}</span> of{' '}
+            <span className="font-semibold text-white">{totalItems}</span> employees
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 border border-slate-700 transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+              .map((pageNum, idx, arr) => (
+                <React.Fragment key={pageNum}>
+                  {idx > 0 && arr[idx - 1] !== pageNum - 1 && (
+                    <span className="px-1 text-slate-600">...</span>
                   )}
-                </div>
-              </div>
-            );
-          })}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                      currentPage === pageNum
+                        ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                </React.Fragment>
+              ))}
+
+            <button
+              type="button"
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 border border-slate-700 transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 

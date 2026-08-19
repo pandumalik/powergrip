@@ -47,4 +47,10 @@ export class ProjectController {
   ) {
     return this.projectService.removeMember(id, employeeId);
   }
+
+  @Delete(':id')
+  @Roles('ADMIN', 'PROJECT_MANAGER')
+  async delete(@Param('id') id: string) {
+    return this.projectService.delete(id);
+  }
 }

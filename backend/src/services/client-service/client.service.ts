@@ -67,4 +67,14 @@ export class ClientService {
     }
     return this.dbService.db.select().from(contracts).orderBy(desc(contracts.createdAt));
   }
+
+  async delete(id: string) {
+    const [deleted] = await this.dbService.db
+      .delete(clients)
+      .where(eq(clients.id, id))
+      .returning();
+
+    if (!deleted) throw new NotFoundException(`Client ${id} not found`);
+    return deleted;
+  }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
 import { AccessService } from './access.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -94,5 +94,17 @@ export class AccessController {
     @Body('reason') reason?: string,
   ) {
     return this.accessService.revokeAccess(id, user?.userId || 'e1111111-1111-1111-1111-111111111111', reason);
+  }
+
+  @Put(':id')
+  @Roles('ADMIN', 'SECURITY_OFFICER', 'SRE_LEAD')
+  async update(@Param('id') id: string, @Body() updateAccessDto: any) {
+    return this.accessService.update(id, updateAccessDto);
+  }
+
+  @Delete(':id')
+  @Roles('ADMIN', 'SECURITY_OFFICER')
+  async delete(@Param('id') id: string) {
+    return this.accessService.delete(id);
   }
 }

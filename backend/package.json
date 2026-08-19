@@ -1,14 +1,15 @@
 {
-  "name": "vcams-backend",
+  "name": "powergrip-backend",
   "version": "1.0.0",
-  "description": "Multi-Tenant Vendor & Client Asset Management System (V-CAMS) Backend",
-  "author": "V-CAMS Team",
+  "description": "Multi-Tenant Enterprise MSP & PAM Asset Matrix (PowerGrip) Backend",
+  "author": "PowerGrip Engineering",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main",
     "dev": "tsx watch src/main.ts",
+    "seed": "tsx src/database/seed.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"

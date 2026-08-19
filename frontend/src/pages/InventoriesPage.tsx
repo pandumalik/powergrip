@@ -3,6 +3,7 @@ import { api } from '@/services/api';
 import { InventoryItem, Client, Project, AssetScope, AssetType, CloudProvider } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { JsonModal } from '@/components/common/JsonModal';
+import { CloudImportModal } from '@/components/common/CloudImportModal';
 import {
   Server,
   Plus,
@@ -12,6 +13,8 @@ import {
   Edit3,
   X,
   Save,
+  Cloud,
+  Trash2,
 } from 'lucide-react';
 
 export const InventoriesPage: React.FC = () => {
@@ -24,9 +27,11 @@ export const InventoriesPage: React.FC = () => {
   const [scopeFilter, setScopeFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [providerFilter, setProviderFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   // Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCloudImportOpen, setIsCloudImportOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedJson, setSelectedJson] = useState<{ title: string; data: any } | null>(null);
 
@@ -39,6 +44,17 @@ export const InventoriesPage: React.FC = () => {
   const [region, setRegion] = useState('asia-southeast2');
   const [primaryIp, setPrimaryIp] = useState('10.140.0.10');
   const [clientId, setClientId] = useState('');
+
+  const resetCreateForm = () => {
+    setName('');
+    setAssetTag('');
+    setAssetScope('CLIENT');
+    setAssetType('VIRTUAL_MACHINE');
+    setProvider('GCP');
+    setRegion('asia-southeast2');
+    setPrimaryIp('10.140.0.10');
+    setClientId(clients[0]?.id || '');
+  };
 
   const loadData = () => {
     api.getInventories().then(setInventories);
@@ -54,7 +70,7 @@ export const InventoriesPage: React.FC = () => {
     e.preventDefault();
     if (!name || !assetTag) return;
 
-    await api.createInventory({
+    const created = await api.createInventory({
       name,
       assetTag,
       assetScope,
@@ -67,18 +83,34 @@ export const InventoriesPage: React.FC = () => {
       connectionInfo: { ssh_port: 22, bastion_required: true },
     });
 
+    setInventories((prev) => [created, ...prev]);
     setIsCreateOpen(false);
-    setName('');
-    setAssetTag('');
-    loadData();
+    resetCreateForm();
+    await loadData();
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
-    await api.updateInventory(editingItem.id, editingItem);
+    const updated = await api.updateInventory(editingItem.id, editingItem);
+    setInventories((prev) =>
+      prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+    );
     setEditingItem(null);
-    loadData();
+    await loadData();
+  };
+
+  const handleDelete = async (id: string, assetName: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete inventory asset "${assetName}"? This action cannot be undone.`)) {
+      return;
+    }
+    setInventories((prev) => prev.filter((i) => i.id !== id));
+    if (editingItem?.id === id) {
+      setEditingItem(null);
+    }
+    await api.deleteInventory(id);
+    await loadData();
   };
 
   const filtered = inventories.filter((inv) => {
@@ -86,6 +118,7 @@ export const InventoriesPage: React.FC = () => {
     if (scopeFilter !== 'ALL') match = match && inv.assetScope === scopeFilter;
     if (typeFilter !== 'ALL') match = match && inv.assetType === typeFilter;
     if (providerFilter !== 'ALL') match = match && inv.provider === providerFilter;
+    if (statusFilter !== 'ALL') match = match && inv.status === statusFilter;
     if (search) {
       const s = search.toLowerCase();
       match =
@@ -112,13 +145,23 @@ export const InventoriesPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsCreateOpen(true)}
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          Register Asset
-        </button>
+        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          <button
+            onClick={() => setIsCloudImportOpen(true)}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-2 transition-all"
+          >
+            <Cloud className="w-4 h-4 text-brand-400" />
+            Import from Cloud
+          </button>
+
+          <button
+            onClick={() => setIsCreateOpen(true)}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            Register Asset
+          </button>
+        </div>
       </div>
 
       {/* Filter Toolbar */}
@@ -170,6 +213,19 @@ export const InventoriesPage: React.FC = () => {
             <option value="DIGITAL_OCEAN">DigitalOcean</option>
             <option value="ON_PREMISE">On-Premise / Bare Metal</option>
           </select>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-brand-500"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="MAINTENANCE">MAINTENANCE</option>
+            <option value="PROVISIONING">PROVISIONING</option>
+            <option value="DECOMMISSIONED">DECOMMISSIONED</option>
+            <option value="ISOLATED">ISOLATED</option>
+          </select>
         </div>
       </div>
 
@@ -209,16 +265,16 @@ export const InventoriesPage: React.FC = () => {
                   </td>
 
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-start gap-1">
                       <StatusBadge status={item.assetScope} />
-                      <span className="text-slate-400 text-xs truncate max-w-[140px]">
+                      <span className="text-slate-400 text-xs truncate max-w-[160px]">
                         {item.client?.name || 'Internal MSP'}
                       </span>
                     </div>
                   </td>
 
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-start gap-1">
                       <StatusBadge status={item.provider} />
                       <span className="font-mono text-slate-300 text-xs">
                         {item.assetType.replace(/_/g, ' ')}
@@ -239,24 +295,36 @@ export const InventoriesPage: React.FC = () => {
                   </td>
 
                   <td className="px-4 py-4 text-right">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedJson({
-                          title: `JSON Specs: ${item.name}`,
-                          data: {
-                            specs: item.specs,
-                            connectionInfo: item.connectionInfo,
-                            tags: item.tags,
-                          },
-                        });
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-medium text-xs inline-flex items-center gap-1.5 transition-colors"
-                    >
-                      <Code2 className="w-3.5 h-3.5 text-brand-400" />
-                      Specs
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedJson({
+                            title: `JSON Specs: ${item.name}`,
+                            data: {
+                              specs: item.specs,
+                              connectionInfo: item.connectionInfo,
+                              tags: item.tags,
+                            },
+                          });
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 font-medium text-xs inline-flex items-center gap-1.5 transition-colors"
+                        title="View JSON Specs"
+                      >
+                        <Code2 className="w-3.5 h-3.5 text-brand-400" />
+                        Specs
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleDelete(item.id, item.name, e)}
+                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors"
+                        title={`Delete asset ${item.name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -386,21 +454,32 @@ export const InventoriesPage: React.FC = () => {
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingItem(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+                  onClick={() => handleDelete(editingItem.id, editingItem.name)}
+                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
                 >
-                  Cancel
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Asset
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  Save Changes
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingItem(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    Save Changes
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -426,7 +505,7 @@ export const InventoriesPage: React.FC = () => {
                 <Server className="w-5 h-5 text-emerald-400" />
                 Register Inventory Asset
               </h3>
-              <button onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => { setIsCreateOpen(false); resetCreateForm(); }} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -540,7 +619,7 @@ export const InventoriesPage: React.FC = () => {
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsCreateOpen(false)}
+                  onClick={() => { setIsCreateOpen(false); resetCreateForm(); }}
                   className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
                 >
                   Cancel
@@ -556,6 +635,14 @@ export const InventoriesPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Cloud Provider Import Wizard Dialog */}
+      <CloudImportModal
+        isOpen={isCloudImportOpen}
+        onClose={() => setIsCloudImportOpen(false)}
+        clients={clients}
+        onImportComplete={loadData}
+      />
     </div>
   );
 };

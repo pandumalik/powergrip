@@ -12,7 +12,7 @@ export const CurrentUser = createParamDecorator(
     const request = ctx.switchToHttp().getRequest();
     return request.user || {
       userId: 'e1111111-1111-1111-1111-111111111111',
-      email: 'admin@vcams.internal',
+      email: 'admin@powergrip.internal',
       name: 'Super Admin (Dev)',
       roles: ['ADMIN', 'SECURITY_OFFICER'],
     };

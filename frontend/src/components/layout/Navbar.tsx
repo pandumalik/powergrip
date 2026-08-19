@@ -17,7 +17,7 @@ export const Navbar: React.FC = () => {
         <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
           <Shield className="w-3.5 h-3.5 text-blue-400" />
           <span className="text-slate-400">Keycloak IAM:</span>
-          <span className="font-semibold text-blue-400">vcams-realm</span>
+          <span className="font-semibold text-blue-400">powergrip-realm</span>
         </div>
       </div>
 
