@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Inject } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { inventories } from '../../database/schema';
 import { eq, desc, and } from 'drizzle-orm';
@@ -122,13 +122,23 @@ export class InventoryService {
   }
 
   async delete(id: string) {
-    const [deleted] = await this.dbService.db
-      .delete(inventories)
-      .where(eq(inventories.id, id))
-      .returning();
+    try {
+      const [deleted] = await this.dbService.db
+        .delete(inventories)
+        .where(eq(inventories.id, id))
+        .returning();
 
-    if (!deleted) throw new NotFoundException(`Inventory item ${id} not found`);
-    return deleted;
+      if (!deleted) throw new NotFoundException(`Inventory item ${id} not found`);
+      return deleted;
+    } catch (err: any) {
+      if (err instanceof NotFoundException) throw err;
+      if (err.code === '23503' || (err.message && err.message.includes('violates foreign key constraint'))) {
+        throw new ConflictException(
+          'Cannot delete this inventory resource because it is actively referenced by privileged access grants or immutable compliance audit logs. Revoke active access grants or decommission the asset instead.'
+        );
+      }
+      throw err;
+    }
   }
 
   // ===========================================================================

@@ -20,6 +20,11 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
 
+export interface DeleteResult {
+  success: boolean;
+  error?: string;
+}
+
 class ApiClient {
   private useMock = false;
   private clients: Client[] = [...mockClients];
@@ -129,6 +134,29 @@ class ApiClient {
     throw new Error('Client not found');
   }
 
+  async deleteClient(id: string): Promise<DeleteResult> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/clients/${id}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          this.clients = this.clients.filter((c) => c.id !== id);
+          return { success: true };
+        }
+        const errData = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errData.message || `Failed to delete client (Status ${res.status})`,
+        };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Network request failed' };
+      }
+    }
+    this.clients = this.clients.filter((c) => c.id !== id);
+    return { success: true };
+  }
+
   // ===========================================================================
   // Projects
   // ===========================================================================
@@ -218,6 +246,29 @@ class ApiClient {
       return this.projects[index];
     }
     throw new Error('Project not found');
+  }
+
+  async deleteProject(id: string): Promise<DeleteResult> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/projects/${id}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          this.projects = this.projects.filter((p) => p.id !== id);
+          return { success: true };
+        }
+        const errData = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errData.message || `Failed to delete project (Status ${res.status})`,
+        };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Network request failed' };
+      }
+    }
+    this.projects = this.projects.filter((p) => p.id !== id);
+    return { success: true };
   }
 
   // ===========================================================================
@@ -313,22 +364,30 @@ class ApiClient {
     throw new Error('Inventory not found');
   }
 
-  async deleteInventory(id: string): Promise<boolean> {
-    const index = this.inventories.findIndex((i) => i.id === id);
-    if (index !== -1) {
-      this.inventories.splice(index, 1);
-    }
+  async deleteInventory(id: string): Promise<DeleteResult> {
     if (!this.useMock) {
       try {
         const res = await fetch(`${API_BASE}/inventories/${id}`, {
           method: 'DELETE',
         });
-        return res.ok;
-      } catch (err) {
-        console.warn('[ApiClient] Failed to delete inventory on backend', err);
+        if (res.ok) {
+          this.inventories = this.inventories.filter((i) => i.id !== id);
+          return { success: true };
+        }
+        const errData = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errData.message || `Failed to delete resource (${res.statusText || res.status})`,
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: err.message || 'Network connection failed',
+        };
       }
     }
-    return true;
+    this.inventories = this.inventories.filter((i) => i.id !== id);
+    return { success: true };
   }
 
   // ===========================================================================
@@ -358,7 +417,6 @@ class ApiClient {
       if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
         throw err;
       }
-      // Only if backend server is completely unreachable, fallback
     }
 
     // Local Cloud Discovery Engine (Offline Fallback)
@@ -614,6 +672,24 @@ class ApiClient {
   }
 
   async updateAccessGrant(id: string, data: Partial<AccessGrant>): Promise<AccessGrant> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.accessGrants.findIndex((g) => g.id === id);
+          if (idx !== -1) this.accessGrants[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to update access grant on backend', err);
+      }
+    }
+
     const index = this.accessGrants.findIndex((g) => g.id === id);
     if (index !== -1) {
       this.accessGrants[index] = {
@@ -626,7 +702,48 @@ class ApiClient {
     throw new Error('Access grant not found');
   }
 
+  async deleteAccessGrant(id: string): Promise<DeleteResult> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/${id}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          this.accessGrants = this.accessGrants.filter((g) => g.id !== id);
+          return { success: true };
+        }
+        const errData = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errData.message || `Failed to delete access grant (Status ${res.status})`,
+        };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Network request failed' };
+      }
+    }
+    this.accessGrants = this.accessGrants.filter((g) => g.id !== id);
+    return { success: true };
+  }
+
   async approveAccess(grantId: string, notes?: string): Promise<AccessGrant> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/${grantId}/approve`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notes }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.accessGrants.findIndex((g) => g.id === grantId);
+          if (idx !== -1) this.accessGrants[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to approve access on backend', err);
+      }
+    }
+
     const grant = this.accessGrants.find((g) => g.id === grantId);
     if (!grant) throw new Error('Grant not found');
 
@@ -653,6 +770,24 @@ class ApiClient {
   }
 
   async rejectAccess(grantId: string, notes?: string): Promise<AccessGrant> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/${grantId}/reject`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: notes }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.accessGrants.findIndex((g) => g.id === grantId);
+          if (idx !== -1) this.accessGrants[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to reject access on backend', err);
+      }
+    }
+
     const grant = this.accessGrants.find((g) => g.id === grantId);
     if (!grant) throw new Error('Grant not found');
 
@@ -664,6 +799,24 @@ class ApiClient {
   }
 
   async revokeAccess(grantId: string, reason?: string): Promise<AccessGrant> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/${grantId}/revoke`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.accessGrants.findIndex((g) => g.id === grantId);
+          if (idx !== -1) this.accessGrants[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to revoke access on backend', err);
+      }
+    }
+
     const grant = this.accessGrants.find((g) => g.id === grantId);
     if (!grant) throw new Error('Grant not found');
 
@@ -707,6 +860,24 @@ class ApiClient {
   }
 
   async updateEmployee(id: string, data: Partial<Employee>): Promise<Employee> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/employees/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.employees.findIndex((e) => e.id === id);
+          if (idx !== -1) this.employees[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to update employee on backend', err);
+      }
+    }
+
     const index = this.employees.findIndex((e) => e.id === id);
     if (index !== -1) {
       this.employees[index] = {
@@ -719,11 +890,94 @@ class ApiClient {
     throw new Error('Employee not found');
   }
 
+  async offboardEmployee(id: string, exitDate?: string): Promise<Employee> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/employees/${id}/offboard`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exitDate }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.employees.findIndex((e) => e.id === id);
+          if (idx !== -1) this.employees[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to offboard employee on backend', err);
+      }
+    }
+
+    const index = this.employees.findIndex((e) => e.id === id);
+    if (index !== -1) {
+      this.employees[index] = {
+        ...this.employees[index],
+        employmentStatus: 'TERMINATED',
+        exitDate: exitDate || new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString(),
+      };
+      return this.employees[index];
+    }
+    throw new Error('Employee not found');
+  }
+
+  async deleteEmployee(id: string): Promise<DeleteResult> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/employees/${id}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          this.employees = this.employees.filter((e) => e.id !== id);
+          return { success: true };
+        }
+        const errData = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errData.message || `Failed to delete employee (Status ${res.status})`,
+        };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Network request failed' };
+      }
+    }
+    this.employees = this.employees.filter((e) => e.id !== id);
+    return { success: true };
+  }
+
   async getDepartments(): Promise<Department[]> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/employees/departments`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            this.departments = data;
+            return data;
+          }
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to fetch departments from backend', err);
+      }
+    }
     return this.departments;
   }
 
   async getAuditLogs(): Promise<AccessAuditLog[]> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/audit-logs`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            this.auditLogs = data;
+            return data;
+          }
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to fetch audit logs from backend', err);
+      }
+    }
     return this.auditLogs;
   }
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '@/services/api';
 import { Employee, Department } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { ConfirmationModal } from '@/components/common/ConfirmationModal';
 import {
   Users,
   Search,
@@ -30,6 +31,11 @@ export const OrgHierarchyPage: React.FC = () => {
 
   // Edit Modal State
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+
+  // Offboarding Confirmation Modal State
+  const [offboardTarget, setOffboardTarget] = useState<Employee | null>(null);
+  const [isOffboarding, setIsOffboarding] = useState(false);
+  const [offboardError, setOffboardError] = useState<string | null>(null);
 
   const loadData = async () => {
     const [emps, depts] = await Promise.all([api.getEmployees(), api.getDepartments()]);
@@ -99,18 +105,31 @@ export const OrgHierarchyPage: React.FC = () => {
     await loadData();
   };
 
-  const handleOffboard = async (id: string, name: string) => {
-    if (window.confirm(`Initiate instant offboarding and access revocation for ${name}?`)) {
-      const updated = await api.updateEmployee(id, { employmentStatus: 'TERMINATED' });
-      // Instant UI state update
+  const handleOffboardClick = (emp: Employee, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setOffboardTarget(emp);
+    setOffboardError(null);
+  };
+
+  const handleConfirmOffboard = async () => {
+    if (!offboardTarget) return;
+    setIsOffboarding(true);
+    setOffboardError(null);
+    try {
+      const updated = await api.offboardEmployee(offboardTarget.id);
       setEmployees((prev) =>
-        prev.map((emp) => (emp.id === id ? { ...emp, ...updated } : emp)),
+        prev.map((emp) => (emp.id === offboardTarget.id ? { ...emp, ...updated } : emp)),
       );
       await api.getAccessGrants().then((grants) => {
-        const active = grants.filter((g) => g.employeeId === id && g.status === 'ACTIVE');
+        const active = grants.filter((g) => g.employeeId === offboardTarget.id && g.status === 'ACTIVE');
         active.forEach((g) => api.revokeAccess(g.id, 'Employee Terminated/Offboarded'));
       });
+      setIsOffboarding(false);
+      setOffboardTarget(null);
       await loadData();
+    } catch (err: any) {
+      setIsOffboarding(false);
+      setOffboardError(err.message || 'Failed to offboard employee');
     }
   };
 
@@ -317,10 +336,7 @@ export const OrgHierarchyPage: React.FC = () => {
                         {emp.employmentStatus === 'ACTIVE' ? (
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOffboard(emp.id, `${emp.firstName} ${emp.lastName}`);
-                            }}
+                            onClick={(e) => handleOffboardClick(emp, e)}
                             className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-medium inline-flex items-center gap-1 transition-colors"
                           >
                             <UserX className="w-3.5 h-3.5" />
@@ -523,6 +539,37 @@ export const OrgHierarchyPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Reusable Enterprise Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!offboardTarget}
+        onClose={() => {
+          if (!isOffboarding) {
+            setOffboardTarget(null);
+            setOffboardError(null);
+          }
+        }}
+        onConfirm={handleConfirmOffboard}
+        title="Initiate Employee Offboarding"
+        message="Are you sure you want to offboard this staff member? All active privileged access grants and session keys will be instantly revoked."
+        itemName={offboardTarget ? `${offboardTarget.firstName} ${offboardTarget.lastName}` : undefined}
+        itemTag={offboardTarget?.employeeNumber}
+        itemDetails={
+          offboardTarget
+            ? [
+                { label: 'Job Title', value: offboardTarget.jobTitle },
+                { label: 'Email', value: offboardTarget.email },
+                { label: 'Status', value: offboardTarget.employmentStatus },
+                { label: 'Hierarchy', value: offboardTarget.hierarchyPath || 'Direct' },
+              ]
+            : []
+        }
+        confirmLabel="Confirm Offboard"
+        cancelLabel="Keep Active"
+        isLoading={isOffboarding}
+        errorMessage={offboardError}
+        variant="warning"
+      />
     </div>
   );
 };

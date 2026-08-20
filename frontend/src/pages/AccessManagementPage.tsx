@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
 import { AccessGrant, InventoryItem, Project, AccessAuditLog } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { ConfirmationModal } from '@/components/common/ConfirmationModal';
 import {
   KeyRound,
   Plus,
@@ -26,6 +27,11 @@ export const AccessManagementPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'matrix' | 'pending' | 'audit'>('matrix');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGrant, setEditingGrant] = useState<AccessGrant | null>(null);
+
+  // Revocation Modal State
+  const [revokeTarget, setRevokeTarget] = useState<AccessGrant | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   // Request Form State
   const [inventoryId, setInventoryId] = useState('');
@@ -96,12 +102,31 @@ export const AccessManagementPage: React.FC = () => {
     await loadData();
   };
 
-  const handleRevoke = async (id: string) => {
-    const revoked = await api.revokeAccess(id, 'Emergency administrative revocation');
-    setGrants((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, ...revoked } : g)),
-    );
-    await loadData();
+  const handleRevokeClick = (grant: AccessGrant, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setRevokeTarget(grant);
+    setRevokeError(null);
+  };
+
+  const handleConfirmRevoke = async () => {
+    if (!revokeTarget) return;
+    setIsRevoking(true);
+    setRevokeError(null);
+    try {
+      const revoked = await api.revokeAccess(revokeTarget.id, 'Emergency administrative revocation');
+      setGrants((prev) =>
+        prev.map((g) => (g.id === revokeTarget.id ? { ...g, ...revoked } : g)),
+      );
+      if (editingGrant?.id === revokeTarget.id) {
+        setEditingGrant(null);
+      }
+      setIsRevoking(false);
+      setRevokeTarget(null);
+      await loadData();
+    } catch (err: any) {
+      setIsRevoking(false);
+      setRevokeError(err.message || 'Failed to revoke access');
+    }
   };
 
   const pendingGrants = grants.filter((g) => g.status === 'PENDING' || g.status === 'ENDORSED');
@@ -234,10 +259,7 @@ export const AccessManagementPage: React.FC = () => {
                     <td className="px-4 py-4 text-right">
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRevoke(grant.id);
-                        }}
+                        onClick={(e) => handleRevokeClick(grant, e)}
                         className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-colors"
                       >
                         Revoke
@@ -549,6 +571,37 @@ export const AccessManagementPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Reusable Enterprise Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!revokeTarget}
+        onClose={() => {
+          if (!isRevoking) {
+            setRevokeTarget(null);
+            setRevokeError(null);
+          }
+        }}
+        onConfirm={handleConfirmRevoke}
+        title="Revoke Privileged Access Grant"
+        message="Are you sure you want to immediately revoke privileged access for this user on the target asset?"
+        itemName={revokeTarget?.inventory?.name}
+        itemTag={revokeTarget?.inventory?.assetTag}
+        itemDetails={
+          revokeTarget
+            ? [
+                { label: 'Staff Member', value: `${revokeTarget.employee?.firstName} ${revokeTarget.employee?.lastName}` },
+                { label: 'Access Level', value: revokeTarget.accessLevel },
+                { label: 'Grant Type', value: revokeTarget.grantType },
+                { label: 'Valid Until', value: revokeTarget.validUntil ? new Date(revokeTarget.validUntil).toLocaleString() : 'N/A' },
+              ]
+            : []
+        }
+        confirmLabel="Revoke Access"
+        cancelLabel="Keep Active"
+        isLoading={isRevoking}
+        errorMessage={revokeError}
+        variant="danger"
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Inject } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { employees, departments } from '../../database/schema';
 import { eq, desc } from 'drizzle-orm';
@@ -103,12 +103,22 @@ export class EmployeeService {
   }
 
   async delete(id: string) {
-    const [deleted] = await this.dbService.db
-      .delete(employees)
-      .where(eq(employees.id, id))
-      .returning();
+    try {
+      const [deleted] = await this.dbService.db
+        .delete(employees)
+        .where(eq(employees.id, id))
+        .returning();
 
-    if (!deleted) throw new NotFoundException(`Employee ${id} not found`);
-    return deleted;
+      if (!deleted) throw new NotFoundException(`Employee ${id} not found`);
+      return deleted;
+    } catch (err: any) {
+      if (err instanceof NotFoundException) throw err;
+      if (err.code === '23503' || (err.message && err.message.includes('violates foreign key constraint'))) {
+        throw new ConflictException(
+          'Cannot delete employee because they are assigned to projects, access grants, or department structures. Initiate employee offboarding instead.'
+        );
+      }
+      throw err;
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Inject } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { clients, contracts } from '../../database/schema';
 import { eq, desc } from 'drizzle-orm';
@@ -69,12 +69,22 @@ export class ClientService {
   }
 
   async delete(id: string) {
-    const [deleted] = await this.dbService.db
-      .delete(clients)
-      .where(eq(clients.id, id))
-      .returning();
+    try {
+      const [deleted] = await this.dbService.db
+        .delete(clients)
+        .where(eq(clients.id, id))
+        .returning();
 
-    if (!deleted) throw new NotFoundException(`Client ${id} not found`);
-    return deleted;
+      if (!deleted) throw new NotFoundException(`Client ${id} not found`);
+      return deleted;
+    } catch (err: any) {
+      if (err instanceof NotFoundException) throw err;
+      if (err.code === '23503' || (err.message && err.message.includes('violates foreign key constraint'))) {
+        throw new ConflictException(
+          'Cannot delete client because it is linked to active contracts, projects, or infrastructure inventory assets. Remove or reassign them first.'
+        );
+      }
+      throw err;
+    }
   }
 }

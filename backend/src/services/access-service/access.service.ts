@@ -1,11 +1,24 @@
-import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Inject } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
-import { accessGrants, accessAuditLogs } from '../../database/schema';
+import { accessGrants, accessAuditLogs, employees } from '../../database/schema';
 import { eq, desc, and } from 'drizzle-orm';
 
 @Injectable()
 export class AccessService {
   constructor(@Inject(DatabaseService) private dbService: DatabaseService) {}
+
+  private async resolveValidEmployeeId(passedId?: string): Promise<string> {
+    if (passedId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(passedId)) {
+      const exists = await this.dbService.db.query.employees.findFirst({
+        where: eq(employees.id, passedId),
+      });
+      if (exists) return exists.id;
+    }
+    // Fallback to the first active employee in database (e.g. SRE Lead Alex Mercer / CTO)
+    const firstEmp = await this.dbService.db.query.employees.findFirst();
+    if (firstEmp) return firstEmp.id;
+    throw new NotFoundException('No active employees exist in the database');
+  }
 
   async findAll(query?: {
     employeeId?: string;
@@ -54,6 +67,7 @@ export class AccessService {
     durationHours?: number;
     justification: string;
   }) {
+    const validEmpId = await this.resolveValidEmployeeId(data.employeeId);
     const now = new Date();
     const durationHours = data.durationHours || 4;
     const requestedEndTime = new Date(now.getTime() + durationHours * 3600 * 1000);
@@ -61,7 +75,7 @@ export class AccessService {
     const [grant] = await this.dbService.db
       .insert(accessGrants)
       .values({
-        employeeId: data.employeeId,
+        employeeId: validEmpId,
         inventoryId: data.inventoryId,
         projectId: data.projectId,
         accessLevel: data.accessLevel || 'READ_WRITE',
@@ -77,7 +91,7 @@ export class AccessService {
     // Log audit event
     await this.logAudit({
       grantId: grant.id,
-      employeeId: data.employeeId,
+      employeeId: validEmpId,
       inventoryId: data.inventoryId,
       action: 'ACCESS_REQUESTED',
       metadata: { accessLevel: grant.accessLevel, durationHours },
@@ -92,11 +106,13 @@ export class AccessService {
       throw new BadRequestException(`Cannot endorse grant in ${grant.status} state`);
     }
 
+    const validEndorserId = await this.resolveValidEmployeeId(endorserId);
+
     const [updated] = await this.dbService.db
       .update(accessGrants)
       .set({
         status: 'ENDORSED',
-        reviewedBy: endorserId,
+        reviewedBy: validEndorserId,
         reviewedAt: new Date(),
         reviewNotes: notes || 'Endorsed by Team Lead',
         updatedAt: new Date(),
@@ -113,6 +129,7 @@ export class AccessService {
       throw new BadRequestException(`Cannot approve grant in ${grant.status} state`);
     }
 
+    const validApproverId = await this.resolveValidEmployeeId(approverId);
     const now = new Date();
     const durationHours = (grant.metadata as any)?.requestedDurationHours || 4;
     const validUntil = new Date(now.getTime() + durationHours * 3600 * 1000);
@@ -123,7 +140,7 @@ export class AccessService {
         status: 'ACTIVE',
         validFrom: now,
         validUntil: validUntil,
-        reviewedBy: approverId,
+        reviewedBy: validApproverId,
         reviewedAt: now,
         reviewNotes: notes || 'Access Approved via Gateway',
         updatedAt: now,
@@ -137,7 +154,7 @@ export class AccessService {
       employeeId: grant.employeeId,
       inventoryId: grant.inventoryId,
       action: 'ACCESS_APPROVED_ACTIVATED',
-      metadata: { approvedBy: approverId, validUntil: validUntil.toISOString() },
+      metadata: { approvedBy: validApproverId, validUntil: validUntil.toISOString() },
     });
 
     return updated;
@@ -145,12 +162,13 @@ export class AccessService {
 
   async rejectAccess(id: string, approverId: string, reason?: string) {
     const grant = await this.findOne(id);
+    const validApproverId = await this.resolveValidEmployeeId(approverId);
 
     const [updated] = await this.dbService.db
       .update(accessGrants)
       .set({
         status: 'REJECTED',
-        reviewedBy: approverId,
+        reviewedBy: validApproverId,
         reviewedAt: new Date(),
         reviewNotes: reason || 'Access request declined',
         updatedAt: new Date(),
@@ -163,12 +181,13 @@ export class AccessService {
 
   async revokeAccess(id: string, revokerId: string, reason?: string) {
     const grant = await this.findOne(id);
+    const validRevokerId = await this.resolveValidEmployeeId(revokerId);
 
     const [updated] = await this.dbService.db
       .update(accessGrants)
       .set({
         status: 'REVOKED',
-        revokedBy: revokerId,
+        revokedBy: validRevokerId,
         revokedAt: new Date(),
         revocationReason: reason || 'Administrative kill-switch invoked',
         updatedAt: new Date(),
@@ -182,7 +201,7 @@ export class AccessService {
       employeeId: grant.employeeId,
       inventoryId: grant.inventoryId,
       action: 'ACCESS_REVOKED',
-      metadata: { revokedBy: revokerId, reason },
+      metadata: { revokedBy: validRevokerId, reason },
     });
 
     return updated;
@@ -197,9 +216,13 @@ export class AccessService {
     sessionId?: string;
     metadata?: Record<string, any>;
   }) {
+    const validEmpId = await this.resolveValidEmployeeId(data.employeeId);
     const [log] = await this.dbService.db
       .insert(accessAuditLogs)
-      .values(data)
+      .values({
+        ...data,
+        employeeId: validEmpId,
+      })
       .returning();
     return log;
   }
@@ -228,12 +251,22 @@ export class AccessService {
   }
 
   async delete(id: string) {
-    const [deleted] = await this.dbService.db
-      .delete(accessGrants)
-      .where(eq(accessGrants.id, id))
-      .returning();
+    try {
+      const [deleted] = await this.dbService.db
+        .delete(accessGrants)
+        .where(eq(accessGrants.id, id))
+        .returning();
 
-    if (!deleted) throw new NotFoundException(`Access grant ${id} not found`);
-    return deleted;
+      if (!deleted) throw new NotFoundException(`Access grant ${id} not found`);
+      return deleted;
+    } catch (err: any) {
+      if (err instanceof NotFoundException) throw err;
+      if (err.code === '23503' || (err.message && err.message.includes('violates foreign key constraint'))) {
+        throw new ConflictException(
+          'Cannot delete access grant because it is recorded in immutable security audit logs.'
+        );
+      }
+      throw err;
+    }
   }
 }

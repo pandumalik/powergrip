@@ -3,6 +3,7 @@ import { api } from '@/services/api';
 import { Client } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { SearchableCreatableSelect } from '@/components/common/SearchableCreatableSelect';
+import { ConfirmationModal } from '@/components/common/ConfirmationModal';
 import {
   Building2,
   Plus,
@@ -30,6 +31,11 @@ export const ClientsPage: React.FC = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isIndustryModalOpen, setIsIndustryModalOpen] = useState(false);
+
+  // Custom Delete Modal State
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Industry Manager State
   const [newIndustryInput, setNewIndustryInput] = useState('');
@@ -124,6 +130,30 @@ export const ClientsPage: React.FC = () => {
     );
     setEditingClient(null);
     await loadData();
+  };
+
+  const handleDeleteClick = (client: Client, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setDeleteTarget(client);
+    setDeleteError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    const res = await api.deleteClient(deleteTarget.id);
+    setIsDeleting(false);
+    if (res.success) {
+      setClients((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+      if (editingClient?.id === deleteTarget.id) {
+        setEditingClient(null);
+      }
+      setDeleteTarget(null);
+      await loadData();
+    } else {
+      setDeleteError(res.error || 'Failed to delete client account');
+    }
   };
 
   const filtered = clients.filter((c) => {
@@ -473,21 +503,32 @@ export const ClientsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingClient(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+                  onClick={() => handleDeleteClick(editingClient)}
+                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
                 >
-                  Cancel
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Client
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  Save Changes
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingClient(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    Save Changes
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -598,6 +639,36 @@ export const ClientsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Reusable Enterprise Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!deleteTarget}
+        onClose={() => {
+          if (!isDeleting) {
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Client Account"
+        message="Are you sure you want to permanently delete this client enterprise from the system?"
+        itemName={deleteTarget?.name}
+        itemTag={deleteTarget?.code}
+        itemDetails={
+          deleteTarget
+            ? [
+                { label: 'Industry', value: deleteTarget.industry || 'General' },
+                { label: 'Country', value: deleteTarget.country || 'N/A' },
+                { label: 'City', value: deleteTarget.city || 'N/A' },
+                { label: 'Contracts', value: `${deleteTarget.contracts?.length || 0} active contracts` },
+              ]
+            : []
+        }
+        confirmLabel="Delete Client"
+        isLoading={isDeleting}
+        errorMessage={deleteError}
+        variant="danger"
+      />
     </div>
   );
 };
