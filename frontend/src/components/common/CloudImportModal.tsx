@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
-import { Client, CloudProvider } from '@/types';
+import { Client, CloudProvider, CloudCredential } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import {
   Cloud,
@@ -21,6 +21,8 @@ import {
   ArrowRight,
   ArrowLeft,
   KeyRound,
+  FileCode,
+  Sparkles,
 } from 'lucide-react';
 
 interface DiscoveredAsset {
@@ -38,6 +40,7 @@ interface DiscoveredAsset {
   duplicateReason?: string;
   existingAssetTag?: string;
   existingId?: string;
+  sourceCredentialName?: string;
 }
 
 interface CloudImportModalProps {
@@ -54,16 +57,27 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
   onImportComplete,
 }) => {
   const [step, setStep] = useState<1 | 2>(1);
+  const [sourceMode, setSourceMode] = useState<'saved' | 'upload'>('saved');
+
+  // Saved credentials selection
+  const [savedCredentials, setSavedCredentials] = useState<CloudCredential[]>([]);
+  const [selectedCredIds, setSelectedCredIds] = useState<string[]>([]);
+  const [isLoadingCreds, setIsLoadingCreds] = useState(false);
+
+  // Manual upload state
   const [provider, setProvider] = useState<CloudProvider>('GCP');
   const [saKeyJson, setSaKeyJson] = useState('');
-  const [fileName, setFileName] = useState('');
+  const [fileNames, setFileNames] = useState<string[]>([]);
+  const [uploadedBlobs, setUploadedBlobs] = useState<Array<{ name: string; blob: any; provider: CloudProvider }>>([]);
+  const [saveUploadedKeysToVault, setSaveUploadedKeysToVault] = useState(true);
+
+  // Discovery progress
   const [isScanning, setIsScanning] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   // Discovery Results
   const [discoveryResult, setDiscoveryResult] = useState<{
-    projectId?: string;
-    accountEmail?: string;
+    projectIds: string[];
     discoveredCount: number;
     duplicateCount: number;
     resources: DiscoveredAsset[];
@@ -78,9 +92,12 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
 
   const resetState = () => {
     setStep(1);
+    setSourceMode('saved');
     setProvider('GCP');
     setSaKeyJson('');
-    setFileName('');
+    setFileNames([]);
+    setUploadedBlobs([]);
+    setSaveUploadedKeysToVault(true);
     setIsScanning(false);
     setErrorMsg('');
     setDiscoveryResult(null);
@@ -91,55 +108,177 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
     setIsSubmitting(false);
   };
 
-  React.useEffect(() => {
-    if (!isOpen) {
+  useEffect(() => {
+    if (isOpen) {
+      setIsLoadingCreds(true);
+      api
+        .getCloudCredentials()
+        .then((creds) => {
+          setSavedCredentials(creds);
+          if (creds.length > 0) {
+            setSourceMode('saved');
+            setSelectedCredIds([creds[0].id]);
+          } else {
+            setSourceMode('upload');
+          }
+        })
+        .finally(() => setIsLoadingCreds(false));
+    } else {
       resetState();
     }
   }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleClose = () => {
     resetState();
     onClose();
   };
 
-  if (!isOpen) return null;
-
-  // Handle File Upload
+  // Handle Multi-file Upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
-    setErrorMsg('');
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      setSaKeyJson(content);
-    };
-    reader.readAsText(file);
+    setErrorMsg('');
+    const newBlobs: typeof uploadedBlobs = [];
+    const names: string[] = [];
+
+    Array.from(files).forEach((file) => {
+      names.push(file.name);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        try {
+          const parsed = JSON.parse(content);
+          let detProv: CloudProvider = provider;
+          if (parsed.type === 'service_account' || parsed.private_key_id) detProv = 'GCP';
+          else if (parsed.aws_access_key_id || parsed.access_key_id) detProv = 'AWS';
+
+          newBlobs.push({ name: file.name, blob: parsed, provider: detProv });
+          if (newBlobs.length === files.length) {
+            setUploadedBlobs(newBlobs);
+            setFileNames(names);
+            if (newBlobs.length === 1) {
+              setSaKeyJson(content);
+            }
+          }
+        } catch {
+          setErrorMsg(`File "${file.name}" is not valid JSON.`);
+        }
+      };
+      reader.readAsText(file);
+    });
   };
 
-  // Run Discovery
-  const handleDiscover = async () => {
-    if (!saKeyJson.trim()) {
-      setErrorMsg('Please upload or paste your Service Account Key JSON.');
-      return;
-    }
+  // Toggle selection for saved credentials
+  const toggleCredSelection = (id: string) => {
+    setSelectedCredIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
+    );
+  };
 
+  // Run Multi-Account Discovery
+  const handleDiscover = async () => {
     setIsScanning(true);
     setErrorMsg('');
 
     try {
-      const result = await api.discoverCloudAssets(provider, saKeyJson);
-      setDiscoveryResult(result);
+      const allDiscoveredResources: DiscoveredAsset[] = [];
+      const projectIds: string[] = [];
+      let totalDuplicates = 0;
 
-      // Default select all non-duplicate resources
-      const nonDuplicates = result.resources.filter((r) => !r.isDuplicate).map((r) => r.candidateId);
+      if (sourceMode === 'saved') {
+        if (selectedCredIds.length === 0) {
+          setErrorMsg('Please select at least 1 saved Service Account to scan.');
+          setIsScanning(false);
+          return;
+        }
+
+        const credsToScan = savedCredentials.filter((c) => selectedCredIds.includes(c.id));
+
+        for (const cred of credsToScan) {
+          try {
+            const res = await api.discoverCloudAssets(cred.provider, cred.keyBlob);
+            if (res.projectId && !projectIds.includes(res.projectId)) projectIds.push(res.projectId);
+            totalDuplicates += res.duplicateCount || 0;
+
+            const tagged = (res.resources || []).map((r) => ({
+              ...r,
+              sourceCredentialName: cred.name,
+            }));
+            allDiscoveredResources.push(...tagged);
+          } catch (scanErr: any) {
+            console.warn(`Discovery failed for ${cred.name}`, scanErr);
+          }
+        }
+      } else {
+        // Upload Mode
+        let blobsToScan = uploadedBlobs;
+        if (blobsToScan.length === 0 && saKeyJson.trim()) {
+          try {
+            const parsed = JSON.parse(saKeyJson);
+            blobsToScan = [{ name: 'manual-sa-key.json', blob: parsed, provider }];
+          } catch {
+            setErrorMsg('Invalid Credentials JSON format. Please verify JSON syntax.');
+            setIsScanning(false);
+            return;
+          }
+        }
+
+        if (blobsToScan.length === 0) {
+          setErrorMsg('Please upload or paste at least 1 Service Account Key JSON.');
+          setIsScanning(false);
+          return;
+        }
+
+        // Optionally save to vault
+        if (saveUploadedKeysToVault) {
+          try {
+            await api.batchImportCloudCredentials(
+              blobsToScan.map((b) => ({
+                name: b.name,
+                provider: b.provider,
+                keyBlob: b.blob,
+                clientId: selectedClientId || undefined,
+              })),
+            );
+          } catch (saveErr) {
+            console.warn('Could not auto-save keys to vault', saveErr);
+          }
+        }
+
+        for (const item of blobsToScan) {
+          const res = await api.discoverCloudAssets(item.provider, item.blob);
+          if (res.projectId && !projectIds.includes(res.projectId)) projectIds.push(res.projectId);
+          totalDuplicates += res.duplicateCount || 0;
+
+          const tagged = (res.resources || []).map((r) => ({
+            ...r,
+            sourceCredentialName: item.name,
+          }));
+          allDiscoveredResources.push(...tagged);
+        }
+      }
+
+      if (allDiscoveredResources.length === 0) {
+        throw new Error('No cloud resources found in the scanned accounts. Check API permissions.');
+      }
+
+      setDiscoveryResult({
+        projectIds,
+        discoveredCount: allDiscoveredResources.length,
+        duplicateCount: totalDuplicates,
+        resources: allDiscoveredResources,
+      });
+
+      // Default select non-duplicates
+      const nonDuplicates = allDiscoveredResources.filter((r) => !r.isDuplicate).map((r) => r.candidateId);
       setSelectedIds(nonDuplicates);
 
       setStep(2);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to authenticate and discover cloud resources. Verify key format.');
+      setErrorMsg(err.message || 'Failed to authenticate and discover cloud resources.');
     } finally {
       setIsScanning(false);
     }
@@ -184,7 +323,7 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
         clientId: assetScope === 'CLIENT' ? selectedClientId || clients[0]?.id : undefined,
         specs: r.specs,
         cloudMetadata: r.cloudMetadata,
-        tags: [r.provider, 'Auto-Imported', discoveryResult.projectId || 'Cloud'],
+        tags: [r.provider, 'Auto-Imported', r.sourceCredentialName || 'Cloud'],
       }));
 
     if (itemsToImport.length === 0) {
@@ -209,32 +348,32 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
-      <div className="glass-panel w-full max-w-4xl rounded-2xl p-6 border border-slate-700 shadow-2xl max-h-[90vh] flex flex-col justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+      <div className="glass-panel w-full max-w-4xl rounded-3xl p-6 border border-slate-700 shadow-2xl max-h-[92vh] flex flex-col justify-between">
         {/* Header */}
         <div>
           <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
                 <Cloud className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  Cloud Infrastructure Discovery & Import
+                  Multi-Account Cloud Discovery & Import
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand-500/20 text-brand-400 border border-brand-500/30">
                     Step {step} of 2
                   </span>
                 </h3>
                 <p className="text-xs text-slate-400">
                   {step === 1
-                    ? 'Upload your Service Account Key to authenticate and scan cloud infrastructure.'
-                    : 'Review discovered resources, validate duplicate records, and assign ownership.'}
+                    ? 'Scan saved Service Account keys or upload new key blobs to discover cloud assets.'
+                    : 'Review discovered resources across accounts, validate duplicates, and assign ownership.'}
                 </p>
               </div>
             </div>
             <button
               onClick={handleClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors hover:bg-slate-800"
+              className="p-1.5 text-slate-400 hover:text-white rounded-xl transition-colors hover:bg-slate-800"
             >
               <X className="w-5 h-5" />
             </button>
@@ -247,75 +386,160 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
             </div>
           )}
 
-          {/* STEP 1: Provider Selection & SA Key Upload */}
+          {/* STEP 1: Select Saved Keys or Upload */}
           {step === 1 && (
-            <div className="space-y-5">
-              {/* 1. Select Cloud Provider */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">
-                  1. Select Target Cloud Provider
-                </label>
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { id: 'GCP' as CloudProvider, name: 'Google Cloud (GCP)', desc: 'Service Account JSON Key (Compute, CloudSQL, GKE)' },
-                    { id: 'AWS' as CloudProvider, name: 'Amazon Web Services (AWS)', desc: 'IAM Access Key / Role Credentials (EC2, RDS, EKS)' },
-                    { id: 'ALI_CLOUD' as CloudProvider, name: 'Alibaba Cloud', desc: 'RAM AccessKey & Resource Discovery' },
-                  ].map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setProvider(p.id)}
-                      className={`p-3.5 rounded-xl border text-left transition-all ${
-                        provider === p.id
-                          ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-500/10'
-                          : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
-                      }`}
-                    >
-                      <span className="text-xs font-bold text-white block">{p.name}</span>
-                      <span className="text-[10px] text-slate-400 block mt-1 leading-snug">{p.desc}</span>
-                    </button>
-                  ))}
-                </div>
+            <div className="space-y-4">
+              {/* Source Mode Toggle */}
+              <div className="flex items-center gap-2 p-1 bg-slate-900 border border-slate-800 rounded-2xl w-fit">
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('saved')}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    sourceMode === 'saved'
+                      ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  Use Saved Cloud Keys ({savedCredentials.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('upload')}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    sourceMode === 'upload'
+                      ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Upload New Key File(s)
+                </button>
               </div>
 
-              {/* 2. Upload SA Key */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2 flex items-center justify-between">
-                  <span>2. Upload or Paste Service Account Key (<code className="text-emerald-400 font-mono">sa-key.json</code>)</span>
-                  {fileName && <span className="text-emerald-400 font-mono text-[10px]">Loaded: {fileName}</span>}
-                </label>
+              {/* Option A: Saved Service Accounts Selection */}
+              {sourceMode === 'saved' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-300">
+                      Select Service Accounts to Scan ({selectedCredIds.length} of {savedCredentials.length} selected):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedCredIds.length === savedCredentials.length) setSelectedCredIds([]);
+                        else setSelectedCredIds(savedCredentials.map((c) => c.id));
+                      }}
+                      className="text-[11px] text-brand-400 hover:text-brand-300 font-semibold"
+                    >
+                      {selectedCredIds.length === savedCredentials.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  </div>
 
-                {/* File Dropzone */}
-                <div className="border-2 border-dashed border-slate-700 hover:border-brand-500/60 bg-slate-900/40 rounded-2xl p-6 text-center transition-all relative cursor-pointer">
-                  <input
-                    type="file"
-                    accept=".json,.txt"
-                    onChange={handleFileUpload}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-brand-400">
-                      <Upload className="w-5 h-5" />
+                  {savedCredentials.length === 0 ? (
+                    <div className="p-8 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/30">
+                      <KeyRound className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-white">No Saved Service Accounts in Vault</p>
+                      <p className="text-[11px] text-slate-400 mt-1 mb-3">
+                        Switch to "Upload New Key File(s)" to scan and save your first key.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSourceMode('upload')}
+                        className="px-3 py-1.5 bg-brand-600 text-white rounded-xl text-xs font-semibold"
+                      >
+                        Upload Key File
+                      </button>
                     </div>
-                    <div>
-                      <p className="text-xs font-bold text-white">Click or drag & drop your <span className="text-emerald-400">sa-key.json</span> here</p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Supports official Google Cloud Platform IAM Service Account Key files</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[280px] overflow-y-auto pr-1">
+                      {savedCredentials.map((cred) => {
+                        const isChecked = selectedCredIds.includes(cred.id);
+                        return (
+                          <div
+                            key={cred.id}
+                            onClick={() => toggleCredSelection(cred.id)}
+                            className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
+                              isChecked
+                                ? 'bg-brand-500/10 border-brand-500 shadow-md shadow-brand-500/10'
+                                : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <button type="button" className="mt-0.5 text-brand-400">
+                              {isChecked ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-slate-500" />}
+                            </button>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <StatusBadge status={cred.provider} />
+                                <span className="text-xs font-bold text-white truncate">{cred.name}</span>
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono truncate">
+                                Proj: {cred.metadata?.projectId || 'N/A'}
+                              </div>
+                              <div className="text-[10px] text-slate-500 font-mono truncate">
+                                {cred.metadata?.accountEmail}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Option B: Direct Key Upload */}
+              {sourceMode === 'upload' && (
+                <div className="space-y-3">
+                  <div className="border-2 border-dashed border-slate-700 hover:border-brand-500/60 bg-slate-900/40 rounded-2xl p-5 text-center transition-all relative cursor-pointer">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".json,.txt"
+                      onChange={handleFileUpload}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div className="flex flex-col items-center justify-center gap-1.5">
+                      <Upload className="w-6 h-6 text-brand-400" />
+                      <p className="text-xs font-bold text-white">
+                        Click or drag & drop single or <span className="text-emerald-400">multiple *.json key files</span>
+                      </p>
+                      {fileNames.length > 0 && (
+                        <p className="text-[11px] font-mono text-emerald-400">
+                          Loaded: {fileNames.join(', ')}
+                        </p>
+                      )}
                     </div>
                   </div>
-                </div>
 
-                {/* Raw Paste Textarea */}
-                <div className="mt-3">
-                  <span className="text-[11px] text-slate-400 block mb-1">Or paste raw credentials JSON directly:</span>
-                  <textarea
-                    rows={4}
-                    placeholder='{"type": "service_account", "project_id": "my-gcp-project-123", "private_key_id": "...", ...}'
-                    value={saKeyJson}
-                    onChange={(e) => setSaKeyJson(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-emerald-400 placeholder:text-slate-600 focus:outline-none focus:border-brand-500"
-                  />
+                  {/* Raw JSON Paste Area */}
+                  <div>
+                    <span className="text-[11px] text-slate-400 block mb-1">Or paste raw credentials JSON directly:</span>
+                    <textarea
+                      rows={3}
+                      placeholder='{"type": "service_account", "project_id": "my-gcp-project-123", "private_key_id": "...", ...}'
+                      value={saKeyJson}
+                      onChange={(e) => setSaKeyJson(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs font-mono text-emerald-400 placeholder:text-slate-600 focus:outline-none focus:border-brand-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="saveVaultCheck"
+                      checked={saveUploadedKeysToVault}
+                      onChange={(e) => setSaveUploadedKeysToVault(e.target.checked)}
+                      className="rounded border-slate-700 text-brand-600 focus:ring-brand-500"
+                    />
+                    <label htmlFor="saveVaultCheck" className="text-xs text-slate-300 font-medium cursor-pointer">
+                      Automatically store these keys in the Service Account Vault for periodic re-scanning
+                    </label>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -323,16 +547,14 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
           {step === 2 && discoveryResult && (
             <div className="space-y-4">
               {/* Project & Discovery Stats Pill */}
-              <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-3">
-                  <span className="text-slate-400">Project:</span>
-                  <span className="font-mono font-bold text-white px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
-                    {discoveryResult.projectId}
-                  </span>
-                  <span className="text-slate-400 hidden sm:inline">•</span>
-                  <span className="text-slate-400 hidden sm:inline truncate max-w-[200px]" title={discoveryResult.accountEmail}>
-                    SA: {discoveryResult.accountEmail}
-                  </span>
+              <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">Projects:</span>
+                  {discoveryResult.projectIds.map((p) => (
+                    <span key={p} className="font-mono font-bold text-white px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
+                      {p}
+                    </span>
+                  ))}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -349,7 +571,7 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
               </div>
 
               {/* Ownership Assignment Bar */}
-              <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs font-semibold text-white">
                   <Building className="w-4 h-4 text-brand-400" />
                   <span>Assign Imported Assets To:</span>
@@ -409,12 +631,12 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
               </div>
 
               {/* Discovered Assets Selection Table */}
-              <div className="rounded-xl border border-slate-800 overflow-hidden max-h-[300px] overflow-y-auto">
+              <div className="rounded-2xl border border-slate-800 overflow-hidden max-h-[280px] overflow-y-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px] sticky top-0 z-10">
                     <tr>
                       <th className="px-3 py-2.5 w-10 text-center">Select</th>
-                      <th className="px-4 py-2.5">Resource Name & Tag</th>
+                      <th className="px-4 py-2.5">Resource & Account</th>
                       <th className="px-4 py-2.5">Type & Specs</th>
                       <th className="px-4 py-2.5">Region & IP</th>
                       <th className="px-4 py-2.5 text-right">Validation Status</th>
@@ -452,7 +674,15 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
 
                           <td className="px-4 py-3">
                             <span className="font-bold text-white block text-xs">{res.name}</span>
-                            <span className="text-[10px] font-mono text-slate-400">{res.assetTag}</span>
+                            <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400 mt-0.5">
+                              <span>{res.assetTag}</span>
+                              {res.sourceCredentialName && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-brand-400 truncate max-w-[120px]">{res.sourceCredentialName}</span>
+                                </>
+                              )}
+                            </div>
                           </td>
 
                           <td className="px-4 py-3">
@@ -460,9 +690,9 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
                               <StatusBadge status={res.assetType} />
                             </div>
                             <span className="text-[10px] text-slate-400 font-mono block">
-                              {res.assetType === 'VIRTUAL_MACHINE' && `${res.specs.cpu_cores} vCPU • ${res.specs.ram_gb}GB RAM`}
-                              {res.assetType === 'DATABASE' && `${res.specs.engine} • ${res.specs.disk_gb}GB SSD`}
-                              {res.assetType === 'KUBERNETES' && `${res.specs.k8s_version} • ${res.specs.total_nodes} Nodes`}
+                              {res.assetType === 'VIRTUAL_MACHINE' && `${res.specs.cpu_cores || 4} vCPU • ${res.specs.ram_gb || 16}GB RAM`}
+                              {res.assetType === 'DATABASE' && `${res.specs.engine || 'CloudSQL'} • ${res.specs.disk_gb || 100}GB`}
+                              {res.assetType === 'KUBERNETES' && `${res.specs.k8s_version || 'GKE'} • ${res.specs.total_nodes || 3} Nodes`}
                             </span>
                           </td>
 
@@ -497,7 +727,7 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
         </div>
 
         {/* Modal Footer Controls */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-800 mt-5">
+        <div className="flex items-center justify-between pt-4 border-t border-slate-800 mt-4">
           {step === 1 ? (
             <>
               <button
@@ -511,7 +741,11 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
               <button
                 type="button"
                 onClick={handleDiscover}
-                disabled={isScanning || !saKeyJson.trim()}
+                disabled={
+                  isScanning ||
+                  (sourceMode === 'saved' && selectedCredIds.length === 0) ||
+                  (sourceMode === 'upload' && uploadedBlobs.length === 0 && !saKeyJson.trim())
+                }
                 className="px-5 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all"
               >
                 {isScanning ? (
@@ -533,7 +767,7 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
                 onClick={() => setStep(1)}
                 className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 rounded-xl flex items-center gap-1.5"
               >
-                <ArrowLeft className="w-3.5 h-3.5" /> Back to Credentials
+                <ArrowLeft className="w-3.5 h-3.5" /> Back to Account Selection
               </button>
 
               <div className="flex items-center gap-3">

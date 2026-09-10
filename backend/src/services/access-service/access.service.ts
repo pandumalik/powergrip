@@ -97,7 +97,7 @@ export class AccessService {
       metadata: { accessLevel: grant.accessLevel, durationHours },
     });
 
-    return grant;
+    return this.findOne(grant.id);
   }
 
   async endorseAccess(id: string, endorserId: string, notes?: string) {

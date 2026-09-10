@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '@/services/api';
-import { Employee, Department } from '@/types';
+import { Employee, Department, Project, AccessGrant, InventoryItem } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
+import { BulkActionToolbar } from '@/components/common/BulkActionToolbar';
 import {
   Users,
   Search,
@@ -16,18 +17,39 @@ import {
   Building,
   Filter,
   ShieldCheck,
+  FolderKanban,
+  Server,
+  Calendar,
+  KeyRound,
+  Eye,
+  Trash2,
+  Lock,
+  Layers,
 } from 'lucide-react';
 
 export const OrgHierarchyPage: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [accessGrants, setAccessGrants] = useState<AccessGrant[]>([]);
+  const [inventories, setInventories] = useState<InventoryItem[]>([]);
+
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
+  // Bulk Selection State
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
+
+  // Details Modal State (Assigned Resources & Projects)
+  const [selectedEmployeeDetails, setSelectedEmployeeDetails] = useState<Employee | null>(null);
 
   // Edit Modal State
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -37,10 +59,24 @@ export const OrgHierarchyPage: React.FC = () => {
   const [isOffboarding, setIsOffboarding] = useState(false);
   const [offboardError, setOffboardError] = useState<string | null>(null);
 
+  // Single Delete Modal State
+  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const loadData = async () => {
-    const [emps, depts] = await Promise.all([api.getEmployees(), api.getDepartments()]);
+    const [emps, depts, prjs, grants, invs] = await Promise.all([
+      api.getEmployees(),
+      api.getDepartments(),
+      api.getProjects(),
+      api.getAccessGrants(),
+      api.getInventories(),
+    ]);
     setEmployees(emps);
     setDepartments(depts);
+    setProjects(prjs);
+    setAccessGrants(grants);
+    setInventories(invs);
   };
 
   useEffect(() => {
@@ -97,10 +133,12 @@ export const OrgHierarchyPage: React.FC = () => {
     e.preventDefault();
     if (!editingEmployee) return;
     const updated = await api.updateEmployee(editingEmployee.id, editingEmployee);
-    // Instant UI state update
     setEmployees((prev) =>
       prev.map((emp) => (emp.id === updated.id ? { ...emp, ...updated } : emp)),
     );
+    if (selectedEmployeeDetails?.id === updated.id) {
+      setSelectedEmployeeDetails(updated);
+    }
     setEditingEmployee(null);
     await loadData();
   };
@@ -109,6 +147,12 @@ export const OrgHierarchyPage: React.FC = () => {
     if (e) e.stopPropagation();
     setOffboardTarget(emp);
     setOffboardError(null);
+  };
+
+  const handleDeleteClick = (emp: Employee, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setDeleteTarget(emp);
+    setDeleteError(null);
   };
 
   const handleConfirmOffboard = async () => {
@@ -133,6 +177,71 @@ export const OrgHierarchyPage: React.FC = () => {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    const res = await api.deleteEmployee(deleteTarget.id);
+    setIsDeleting(false);
+    if (res.success) {
+      setEmployees((prev) => prev.filter((e) => e.id !== deleteTarget.id));
+      if (selectedEmployeeDetails?.id === deleteTarget.id) {
+        setSelectedEmployeeDetails(null);
+      }
+      setDeleteTarget(null);
+      await loadData();
+    } else {
+      setDeleteError(res.error || 'Failed to delete employee record');
+    }
+  };
+
+  const handleToggleSelect = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  };
+
+  const handleSelectAll = () => {
+    setSelectedIds(filteredEmployees.map((e) => e.id));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedIds([]);
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setIsBulkDeleting(true);
+    setBulkDeleteError(null);
+    const res = await api.deleteEmployees(selectedIds);
+    setIsBulkDeleting(false);
+    if (res.success) {
+      setEmployees((prev) => prev.filter((e) => !selectedIds.includes(e.id)));
+      setSelectedIds([]);
+      setIsBulkDeleteModalOpen(false);
+      await loadData();
+    } else {
+      setBulkDeleteError(res.errors?.join(', ') || 'Failed to delete selected employees');
+      await loadData();
+    }
+  };
+
+  // Helper to find assigned projects & access grants for the details modal
+  const employeeProjects = useMemo(() => {
+    if (!selectedEmployeeDetails) return [];
+    return projects.filter(
+      (p) =>
+        p.projectManagerId === selectedEmployeeDetails.id ||
+        (p.assignedMembers && p.assignedMembers.some((m) => m.employee_id === selectedEmployeeDetails.id || m.employeeId === selectedEmployeeDetails.id)),
+    );
+  }, [selectedEmployeeDetails, projects]);
+
+  const employeeGrants = useMemo(() => {
+    if (!selectedEmployeeDetails) return [];
+    return accessGrants.filter((g) => g.employeeId === selectedEmployeeDetails.id);
+  }, [selectedEmployeeDetails, accessGrants]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -141,9 +250,12 @@ export const OrgHierarchyPage: React.FC = () => {
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Users className="w-5 h-5 text-blue-400" />
             Employees & Staff Directory
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              {employees.length} Total
+            </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Browse and manage all {employees.length} organization staff. Click any row to edit details.
+            Browse and manage organization staff, assigned projects, and privileged access grants. Click any row to inspect full profile and assigned resources.
           </p>
         </div>
       </div>
@@ -220,24 +332,50 @@ export const OrgHierarchyPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Consistent 2-Line Employee List Table */}
+      {/* Bulk Action Toolbar */}
+      <BulkActionToolbar
+        selectedCount={selectedIds.length}
+        totalCount={filteredEmployees.length}
+        onSelectAll={handleSelectAll}
+        onDeselectAll={handleDeselectAll}
+        onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
+        isAllSelected={selectedIds.length === filteredEmployees.length && filteredEmployees.length > 0}
+        resourceName="employees"
+        deleteLabel={`Delete Selected (${selectedIds.length})`}
+      />
+
+      {/* Employee Directory Table */}
       <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="px-5 py-3.5 min-w-[220px]">Name & ID</th>
-                <th className="px-4 py-3.5 min-w-[220px]">Job Title & Hierarchy</th>
-                <th className="px-4 py-3.5 min-w-[200px]">Email & Verification</th>
-                <th className="px-4 py-3.5 min-w-[180px]">Department & Manager</th>
-                <th className="px-4 py-3.5 min-w-[120px]">Status</th>
-                <th className="px-4 py-3.5 text-right min-w-[100px]">Actions</th>
+                <th className="w-10 px-4 py-3.5 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.length === filteredEmployees.length && filteredEmployees.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(filteredEmployees.map((emp) => emp.id));
+                      } else {
+                        setSelectedIds([]);
+                      }
+                    }}
+                    className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                  />
+                </th>
+                <th className="px-4 py-3.5 min-w-[200px]">Name & ID</th>
+                <th className="px-4 py-3.5 min-w-[200px]">Job Title & Hierarchy</th>
+                <th className="px-4 py-3.5 min-w-[180px]">Email & Verification</th>
+                <th className="px-4 py-3.5 min-w-[170px]">Department & Manager</th>
+                <th className="px-4 py-3.5 min-w-[110px]">Status</th>
+                <th className="px-4 py-3.5 text-right min-w-[140px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {paginatedEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-slate-500">
+                  <td colSpan={7} className="px-5 py-12 text-center text-slate-500">
                     No employees matching the search criteria.
                   </td>
                 </tr>
@@ -246,33 +384,48 @@ export const OrgHierarchyPage: React.FC = () => {
                   const dept = departments.find((d) => d.id === emp.departmentId);
                   const manager = employees.find((e) => e.id === emp.managerId);
                   const displayName = formatDisplayName(emp.firstName, emp.lastName);
+                  const isSelected = selectedIds.includes(emp.id);
+
                   return (
                     <tr
                       key={emp.id}
-                      onClick={() => setEditingEmployee({ ...emp })}
-                      className="hover:bg-slate-900/60 cursor-pointer transition-colors group h-[68px]"
+                      onClick={() => setSelectedEmployeeDetails(emp)}
+                      className={`hover:bg-slate-900/60 cursor-pointer transition-colors group h-[68px] ${
+                        isSelected ? 'bg-brand-500/5' : ''
+                      }`}
                     >
-                      {/* Column 1: Name & ID (Fixed 2 lines) */}
-                      <td className="px-5 py-3 min-w-[220px]">
-                        <div className="flex items-center gap-3">
+                      {/* Checkbox */}
+                      <td
+                        className="w-10 px-4 py-3 text-center"
+                        onClick={(e) => handleToggleSelect(emp.id, e)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                        />
+                      </td>
+
+                      {/* Column 1: Name & ID */}
+                      <td className="px-4 py-3 min-w-[200px]">
+                        <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-brand-400 shrink-0 group-hover:border-blue-500/40 transition-colors">
                             {emp.firstName[0]}
                             {emp.lastName[0]}
                           </div>
                           <div className="min-w-0">
-                            {/* Line 1 */}
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
                               <span
                                 className="font-bold text-white text-xs group-hover:text-blue-400 transition-colors truncate"
                                 title={`${emp.firstName} ${emp.lastName}`}
                               >
                                 {displayName}
                               </span>
-                              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap shrink-0 leading-none">
+                              <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap shrink-0 leading-none">
                                 {emp.employeeNumber}
                               </span>
                             </div>
-                            {/* Line 2 */}
                             <span className="text-[10px] text-slate-500 block truncate mt-0.5">
                               Joined {emp.joinDate}
                             </span>
@@ -280,71 +433,97 @@ export const OrgHierarchyPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* Column 2: Job Title & Hierarchy (Fixed 2 lines) */}
-                      <td className="px-4 py-3 min-w-[220px]">
-                        {/* Line 1 */}
-                        <p className="font-semibold text-slate-200 text-xs truncate max-w-[210px]" title={emp.jobTitle}>
+                      {/* Column 2: Job Title & Hierarchy */}
+                      <td className="px-4 py-3 min-w-[200px]">
+                        <p className="font-semibold text-slate-200 text-xs truncate max-w-[200px]" title={emp.jobTitle}>
                           {emp.jobTitle}
                         </p>
-                        {/* Line 2 */}
-                        <p className="text-[10px] font-mono text-emerald-400 truncate max-w-[210px] mt-0.5" title={emp.hierarchyPath}>
+                        <p className="text-[10px] font-mono text-emerald-400 truncate max-w-[200px] mt-0.5" title={emp.hierarchyPath}>
                           {emp.hierarchyPath || emp.employeeNumber}
                         </p>
                       </td>
 
-                      {/* Column 3: Email & Verification (Fixed 2 lines) */}
-                      <td className="px-4 py-3 min-w-[200px]">
-                        {/* Line 1 */}
+                      {/* Column 3: Email & Verification */}
+                      <td className="px-4 py-3 min-w-[180px]">
                         <span className="text-slate-300 font-mono text-xs flex items-center gap-1.5 truncate">
                           <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                           <span className="truncate">{emp.email}</span>
                         </span>
-                        {/* Line 2 */}
                         <span className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
                           <ShieldCheck className="w-3 h-3 text-emerald-500/70 shrink-0" />
-                          Corporate SSO Identity
+                          Corporate Identity
                         </span>
                       </td>
 
-                      {/* Column 4: Department & Manager (Fixed 2 lines) */}
-                      <td className="px-4 py-3 min-w-[180px]">
-                        {/* Line 1 */}
-                        <span className="inline-flex items-center gap-1 text-slate-300 text-xs truncate max-w-[170px]">
+                      {/* Column 4: Department & Manager */}
+                      <td className="px-4 py-3 min-w-[170px]">
+                        <span className="inline-flex items-center gap-1 text-slate-300 text-xs truncate max-w-[160px]">
                           <Building className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                           <span className="truncate">{dept?.name || 'Unassigned'}</span>
                         </span>
-                        {/* Line 2 */}
                         <span className="text-[10px] text-slate-500 block truncate mt-0.5">
-                          {manager ? `Reports to: ${manager.firstName} ${manager.lastName}` : 'Reports to: Board / Direct'}
+                          {manager ? `Reports to: ${manager.firstName} ${manager.lastName}` : 'Reports to: Direct'}
                         </span>
                       </td>
 
-                      {/* Column 5: Status (Fixed 2 lines) */}
-                      <td className="px-4 py-3 min-w-[120px]">
-                        {/* Line 1 */}
+                      {/* Column 5: Status */}
+                      <td className="px-4 py-3 min-w-[110px]">
                         <div>
                           <StatusBadge status={emp.employmentStatus} />
                         </div>
-                        {/* Line 2 */}
                         <span className="text-[10px] text-slate-500 block mt-0.5">
                           Full-Time Staff
                         </span>
                       </td>
 
-                      {/* Column 6: Actions (Offboard only, click row to edit) */}
-                      <td className="px-4 py-3 text-right min-w-[100px]">
-                        {emp.employmentStatus === 'ACTIVE' ? (
+                      {/* Column 6: Actions */}
+                      <td className="px-4 py-3 text-right min-w-[140px]">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={(e) => handleOffboardClick(emp, e)}
-                            className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-medium inline-flex items-center gap-1 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedEmployeeDetails(emp);
+                            }}
+                            className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs inline-flex items-center transition-colors"
+                            title="View employee profile & assigned resources"
                           >
-                            <UserX className="w-3.5 h-3.5" />
-                            Offboard
+                            <Eye className="w-3.5 h-3.5" />
                           </button>
-                        ) : (
-                          <span className="text-[11px] text-slate-500 italic">Offboarded</span>
-                        )}
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingEmployee({ ...emp });
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs inline-flex items-center transition-colors"
+                            title="Edit employee information"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {emp.employmentStatus === 'ACTIVE' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleOffboardClick(emp, e)}
+                              className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium inline-flex items-center gap-1 transition-colors"
+                              title="Offboard employee"
+                            >
+                              <UserX className="w-3 h-3" />
+                              Offboard
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteClick(emp, e)}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs inline-flex items-center transition-colors"
+                            title="Delete employee record"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -354,7 +533,7 @@ export const OrgHierarchyPage: React.FC = () => {
           </table>
         </div>
 
-        {/* Pagination Footer (10 items per page) */}
+        {/* Pagination Footer */}
         <div className="px-5 py-3 bg-slate-900/60 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
           <div>
             Showing <span className="font-semibold text-white">{totalItems === 0 ? 0 : startIndex + 1}</span> to{' '}
@@ -404,6 +583,202 @@ export const OrgHierarchyPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Employee Details & Assigned Resources / Projects Modal */}
+      {selectedEmployeeDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
+          <div className="glass-panel w-full max-w-2xl rounded-2xl p-6 border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto space-y-6">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center font-bold text-base text-blue-400">
+                  {selectedEmployeeDetails.firstName[0]}
+                  {selectedEmployeeDetails.lastName[0]}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-white">
+                      {selectedEmployeeDetails.firstName} {selectedEmployeeDetails.lastName}
+                    </h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-bold">
+                      {selectedEmployeeDetails.employeeNumber}
+                    </span>
+                    <StatusBadge status={selectedEmployeeDetails.employmentStatus} />
+                  </div>
+                  <p className="text-xs text-blue-300 mt-0.5 font-medium">
+                    {selectedEmployeeDetails.jobTitle} • {departments.find((d) => d.id === selectedEmployeeDetails.departmentId)?.name || 'General Department'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedEmployeeDetails(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Profile Overview Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-semibold uppercase">SSO Email Address</span>
+                <p className="font-mono text-slate-200 truncate">{selectedEmployeeDetails.email}</p>
+              </div>
+
+              <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-semibold uppercase">Hierarchy / Reporting Line</span>
+                <p className="font-mono text-emerald-400 truncate">
+                  {selectedEmployeeDetails.hierarchyPath || 'Direct / Top of Org'}
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-semibold uppercase">Organization Join Date</span>
+                <p className="text-slate-200 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                  {selectedEmployeeDetails.joinDate}
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-semibold uppercase">Reports To (Manager)</span>
+                <p className="text-slate-200">
+                  {employees.find((e) => e.id === selectedEmployeeDetails.managerId)
+                    ? `${employees.find((e) => e.id === selectedEmployeeDetails.managerId)?.firstName} ${employees.find((e) => e.id === selectedEmployeeDetails.managerId)?.lastName}`
+                    : 'Board of Directors / Direct'}
+                </p>
+              </div>
+            </div>
+
+            {/* Section 1: Assigned Projects */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <FolderKanban className="w-4 h-4 text-brand-400" />
+                  Assigned Client Projects ({employeeProjects.length})
+                </h4>
+              </div>
+
+              {employeeProjects.length === 0 ? (
+                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-center text-xs text-slate-500">
+                  No active projects currently assigned to this employee.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {employeeProjects.map((prj) => (
+                    <div
+                      key={prj.id}
+                      className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                            {prj.code}
+                          </span>
+                          <p className="text-xs font-bold text-white">{prj.name}</p>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Client: <span className="text-slate-300 font-semibold">{prj.client?.name || 'Enterprise'}</span> • {prj.projectManagerId === selectedEmployeeDetails.id ? 'Role: Project Manager' : 'Role: Team Member'}
+                        </p>
+                      </div>
+                      <StatusBadge status={prj.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Accessible Infrastructure & PAM Grants */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-amber-400" />
+                  Privileged Access & Infrastructure Grants ({employeeGrants.length})
+                </h4>
+              </div>
+
+              {employeeGrants.length === 0 ? (
+                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-center text-xs text-slate-500">
+                  No privileged access grants or asset permissions registered for this staff member.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {employeeGrants.map((grant) => (
+                    <div
+                      key={grant.id}
+                      className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Server className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          <p className="text-xs font-bold text-white">{grant.inventory?.name || 'Inventory Asset'}</p>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            ({grant.inventory?.assetTag || 'TAG'})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                          <span>Level: <span className="text-amber-300 font-semibold">{grant.accessLevel}</span></span>
+                          <span>•</span>
+                          <span>{grant.grantType === 'PERMANENT' ? 'Indefinite' : `TTL: ${grant.validUntil ? new Date(grant.validUntil).toLocaleTimeString() : 'Timed'}`}</span>
+                          {grant.justification && (
+                            <>
+                              <span>•</span>
+                              <span className="truncate max-w-[180px] italic">"{grant.justification}"</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <StatusBadge status={grant.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  const emp = selectedEmployeeDetails;
+                  setSelectedEmployeeDetails(null);
+                  setEditingEmployee({ ...emp });
+                }}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-1.5 transition-colors"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                Edit Profile
+              </button>
+
+              <div className="flex items-center gap-2">
+                {selectedEmployeeDetails.employmentStatus === 'ACTIVE' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const emp = selectedEmployeeDetails;
+                      setSelectedEmployeeDetails(null);
+                      handleOffboardClick(emp);
+                    }}
+                    className="px-3.5 py-2 text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    Offboard Staff
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedEmployeeDetails(null)}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Employee Modal */}
       {editingEmployee && (
@@ -540,7 +915,7 @@ export const OrgHierarchyPage: React.FC = () => {
         </div>
       )}
 
-      {/* Reusable Enterprise Confirmation Modal */}
+      {/* Offboarding Confirmation Modal */}
       <ConfirmationModal
         isOpen={!!offboardTarget}
         onClose={() => {
@@ -569,6 +944,53 @@ export const OrgHierarchyPage: React.FC = () => {
         isLoading={isOffboarding}
         errorMessage={offboardError}
         variant="warning"
+      />
+
+      {/* Single Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!deleteTarget}
+        onClose={() => {
+          if (!isDeleting) {
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Employee Record"
+        message="Are you sure you want to permanently delete this employee from the directory?"
+        itemName={deleteTarget ? `${deleteTarget.firstName} ${deleteTarget.lastName}` : undefined}
+        itemTag={deleteTarget?.employeeNumber}
+        itemDetails={
+          deleteTarget
+            ? [
+                { label: 'Job Title', value: deleteTarget.jobTitle },
+                { label: 'Email', value: deleteTarget.email },
+                { label: 'Department', value: departments.find((d) => d.id === deleteTarget.departmentId)?.name || 'N/A' },
+              ]
+            : []
+        }
+        confirmLabel="Delete Employee"
+        isLoading={isDeleting}
+        errorMessage={deleteError}
+        variant="danger"
+      />
+
+      {/* Bulk Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => {
+          if (!isBulkDeleting) {
+            setIsBulkDeleteModalOpen(false);
+            setBulkDeleteError(null);
+          }
+        }}
+        onConfirm={handleConfirmBulkDelete}
+        title="Delete Selected Employees"
+        message={`Are you sure you want to permanently delete ${selectedIds.length} selected employee record(s)? This will cascade or fail if active access grants or managed projects exist.`}
+        confirmLabel={`Delete ${selectedIds.length} Employees`}
+        isLoading={isBulkDeleting}
+        errorMessage={bulkDeleteError}
+        variant="danger"
       />
     </div>
   );

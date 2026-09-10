@@ -16,6 +16,9 @@ import {
   Department,
   AccessAuditLog,
   CloudProvider,
+  CloudCredential,
+  InventoryHistory,
+  ReScanSummaryResult,
 } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
@@ -34,6 +37,9 @@ class ApiClient {
   private employees: Employee[] = [...mockEmployees];
   private departments: Department[] = [...mockDepartments];
   private auditLogs: AccessAuditLog[] = [...mockAuditLogs];
+
+  private cloudCredentials: CloudCredential[] = [];
+  private inventoryHistories: InventoryHistory[] = [];
 
   setMockMode(isMock: boolean) {
     this.useMock = isMock;
@@ -157,6 +163,20 @@ class ApiClient {
     return { success: true };
   }
 
+  async deleteClients(ids: string[]): Promise<{ success: boolean; deletedCount: number; errors: string[] }> {
+    let deletedCount = 0;
+    const errors: string[] = [];
+    for (const id of ids) {
+      const res = await this.deleteClient(id);
+      if (res.success) {
+        deletedCount++;
+      } else if (res.error) {
+        errors.push(res.error);
+      }
+    }
+    return { success: errors.length === 0, deletedCount, errors };
+  }
+
   // ===========================================================================
   // Projects
   // ===========================================================================
@@ -269,6 +289,20 @@ class ApiClient {
     }
     this.projects = this.projects.filter((p) => p.id !== id);
     return { success: true };
+  }
+
+  async deleteProjects(ids: string[]): Promise<{ success: boolean; deletedCount: number; errors: string[] }> {
+    let deletedCount = 0;
+    const errors: string[] = [];
+    for (const id of ids) {
+      const res = await this.deleteProject(id);
+      if (res.success) {
+        deletedCount++;
+      } else if (res.error) {
+        errors.push(res.error);
+      }
+    }
+    return { success: errors.length === 0, deletedCount, errors };
   }
 
   // ===========================================================================
@@ -388,6 +422,20 @@ class ApiClient {
     }
     this.inventories = this.inventories.filter((i) => i.id !== id);
     return { success: true };
+  }
+
+  async deleteInventories(ids: string[]): Promise<{ success: boolean; deletedCount: number; errors: string[] }> {
+    let deletedCount = 0;
+    const errors: string[] = [];
+    for (const id of ids) {
+      const res = await this.deleteInventory(id);
+      if (res.success) {
+        deletedCount++;
+      } else if (res.error) {
+        errors.push(res.error);
+      }
+    }
+    return { success: errors.length === 0, deletedCount, errors };
   }
 
   // ===========================================================================
@@ -606,6 +654,379 @@ class ApiClient {
   }
 
   // ===========================================================================
+  // Cloud Credentials (Service Account Key Blob Store)
+  // ===========================================================================
+  async getCloudCredentials(): Promise<CloudCredential[]> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            this.cloudCredentials = data;
+            return data;
+          }
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to fetch cloud credentials from backend, using cache', err);
+      }
+    }
+    return this.cloudCredentials;
+  }
+
+  async getCloudCredential(id: string): Promise<CloudCredential> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials/${id}`);
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to fetch cloud credential from backend', err);
+      }
+    }
+    const cred = this.cloudCredentials.find((c) => c.id === id);
+    if (!cred) throw new Error('Cloud credential not found');
+    return cred;
+  }
+
+  async createCloudCredential(data: {
+    name?: string;
+    provider?: CloudProvider;
+    keyBlob: any;
+    clientId?: string;
+    autoScanInterval?: string;
+    isActive?: boolean;
+  }): Promise<CloudCredential> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (res.ok) {
+          const created = await res.json();
+          this.cloudCredentials.unshift(created);
+          return created;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Failed to save Cloud Service Account Key');
+        }
+      } catch (err: any) {
+        if (!err.message.includes('Failed to fetch')) throw err;
+      }
+    }
+
+    let parsedBlob: any = data.keyBlob;
+    if (typeof data.keyBlob === 'string') {
+      try {
+        parsedBlob = JSON.parse(data.keyBlob);
+      } catch {
+        parsedBlob = { raw: data.keyBlob };
+      }
+    }
+
+    const provider = data.provider || (parsedBlob.type === 'service_account' ? 'GCP' : 'AWS');
+    const projectId = parsedBlob.project_id || parsedBlob.account_id || 'cloud-project';
+    const clientEmail = parsedBlob.client_email || parsedBlob.access_key_id || 'service-account';
+
+    const newCred: CloudCredential = {
+      id: `cred_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: data.name || `${projectId}-${clientEmail.split('@')[0]}.json`,
+      provider,
+      keyBlob: parsedBlob,
+      clientId: data.clientId,
+      client: this.clients.find((c) => c.id === data.clientId),
+      metadata: {
+        projectId,
+        accountEmail: clientEmail,
+        keyType: parsedBlob.type || 'service_account',
+        importedAt: new Date().toISOString(),
+      },
+      autoScanInterval: data.autoScanInterval || '1h',
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      scanStatus: 'IDLE',
+      lastScanSummary: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.cloudCredentials.unshift(newCred);
+    return newCred;
+  }
+
+  async batchImportCloudCredentials(
+    items: Array<{
+      name?: string;
+      provider?: CloudProvider;
+      keyBlob: any;
+      clientId?: string;
+      autoScanInterval?: string;
+    }>,
+  ): Promise<{ importedCount: number; credentials: CloudCredential[] }> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items }),
+        });
+        if (res.ok) {
+          const result = await res.json();
+          if (result?.credentials && Array.isArray(result.credentials)) {
+            this.cloudCredentials.unshift(...result.credentials);
+          }
+          return result;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Batch import failed');
+        }
+      } catch (err: any) {
+        if (!err.message.includes('Failed to fetch')) throw err;
+      }
+    }
+
+    const createdList: CloudCredential[] = [];
+    for (const item of items) {
+      const created = await this.createCloudCredential(item);
+      createdList.push(created);
+    }
+
+    return {
+      importedCount: createdList.length,
+      credentials: createdList,
+    };
+  }
+
+  async updateCloudCredential(id: string, data: Partial<CloudCredential>): Promise<CloudCredential> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.cloudCredentials.findIndex((c) => c.id === id);
+          if (idx !== -1) this.cloudCredentials[idx] = updated;
+          return updated;
+        }
+      } catch (err: any) {
+        if (!err.message.includes('Failed to fetch')) throw err;
+      }
+    }
+
+    const index = this.cloudCredentials.findIndex((c) => c.id === id);
+    if (index !== -1) {
+      this.cloudCredentials[index] = {
+        ...this.cloudCredentials[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.cloudCredentials[index];
+    }
+    throw new Error('Cloud credential not found');
+  }
+
+  async deleteCloudCredential(id: string): Promise<DeleteResult> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials/${id}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          this.cloudCredentials = this.cloudCredentials.filter((c) => c.id !== id);
+          return { success: true };
+        }
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.message || 'Delete failed' };
+      } catch (err: any) {
+        if (!err.message.includes('Failed to fetch')) return { success: false, error: err.message };
+      }
+    }
+
+    this.cloudCredentials = this.cloudCredentials.filter((c) => c.id !== id);
+    return { success: true };
+  }
+
+  async scanCloudCredential(id: string): Promise<ReScanSummaryResult> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials/${id}/scan`, {
+          method: 'POST',
+        });
+        if (res.ok) {
+          const result: ReScanSummaryResult = await res.json();
+          const credIdx = this.cloudCredentials.findIndex((c) => c.id === id);
+          if (credIdx !== -1) {
+            this.cloudCredentials[credIdx].scanStatus = 'SUCCESS';
+            this.cloudCredentials[credIdx].lastScannedAt = result.scannedAt;
+            this.cloudCredentials[credIdx].lastScanSummary = {
+              totalDiscovered: result.totalDiscovered,
+              newAssetsCount: result.newAssetsCount,
+              updatedAssetsCount: result.updatedAssetsCount,
+              unchangedAssetsCount: result.unchangedAssetsCount,
+              decommissionedAssetsCount: result.decommissionedAssetsCount,
+              lastScannedAt: result.scannedAt,
+            };
+          }
+          return result;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Scan failed');
+        }
+      } catch (err: any) {
+        if (!err.message.includes('Failed to fetch')) throw err;
+      }
+    }
+
+    // Mock Scan Simulation with realistic drift detection
+    const cred = this.cloudCredentials.find((c) => c.id === id);
+    if (!cred) throw new Error('Cloud credential not found');
+
+    cred.scanStatus = 'SCANNING';
+    await new Promise((r) => setTimeout(r, 600));
+
+    const now = new Date().toISOString();
+    const projectId = cred.metadata?.projectId || 'cloud-project';
+
+    // Simulate discovering assets and checking for drift
+    const matchingInv = this.inventories.find((inv) => inv.provider === cred.provider);
+    const driftEvents: ReScanSummaryResult['driftEvents'] = [];
+    let updatedCount = 0;
+
+    if (matchingInv) {
+      updatedCount = 1;
+      const prevCores = matchingInv.specs?.cpu_cores || 4;
+      const newCores = prevCores === 8 ? 16 : 8;
+      const prevRam = matchingInv.specs?.ram_gb || 16;
+      const newRam = prevRam === 32 ? 64 : 32;
+
+      matchingInv.specs = {
+        ...matchingInv.specs,
+        cpu_cores: newCores,
+        ram_gb: newRam,
+        machine_type: `e2-standard-${newCores}`,
+      };
+      matchingInv.updatedAt = now;
+
+      const summary = `[Auto Re-Scan] Machine type resized: e2-standard-${prevCores} -> e2-standard-${newCores} (${newCores} vCPU, ${newRam}GB RAM)`;
+      const newHist: InventoryHistory = {
+        id: `hist_${Date.now()}`,
+        inventoryId: matchingInv.id,
+        serviceAccountId: cred.id,
+        changeType: 'SPECS_CHANGED',
+        changeSummary: summary,
+        previousState: { cpu_cores: prevCores, ram_gb: prevRam, machine_type: `e2-standard-${prevCores}` },
+        newState: { cpu_cores: newCores, ram_gb: newRam, machine_type: `e2-standard-${newCores}` },
+        source: 'AUTOMATED_SCAN',
+        createdAt: now,
+        inventory: matchingInv,
+        serviceAccount: cred,
+      };
+
+      this.inventoryHistories.unshift(newHist);
+
+      driftEvents.push({
+        inventoryId: matchingInv.id,
+        assetTag: matchingInv.assetTag,
+        assetName: matchingInv.name,
+        changeType: 'SPECS_CHANGED',
+        changeSummary: summary,
+      });
+    }
+
+    const scanResult: ReScanSummaryResult = {
+      credentialId: cred.id,
+      credentialName: cred.name,
+      provider: cred.provider,
+      projectId,
+      scannedAt: now,
+      totalDiscovered: 4,
+      newAssetsCount: 0,
+      updatedAssetsCount: updatedCount,
+      unchangedAssetsCount: 3,
+      decommissionedAssetsCount: 0,
+      driftEvents,
+    };
+
+    cred.scanStatus = 'SUCCESS';
+    cred.lastScannedAt = now;
+    cred.lastScanSummary = {
+      totalDiscovered: scanResult.totalDiscovered,
+      newAssetsCount: scanResult.newAssetsCount,
+      updatedAssetsCount: scanResult.updatedAssetsCount,
+      unchangedAssetsCount: scanResult.unchangedAssetsCount,
+      decommissionedAssetsCount: scanResult.decommissionedAssetsCount,
+      lastScannedAt: now,
+    };
+
+    return scanResult;
+  }
+
+  async scanAllCloudCredentials(): Promise<ReScanSummaryResult[]> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/cloud-credentials/scan-all`, {
+          method: 'POST',
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (err: any) {
+        if (!err.message.includes('Failed to fetch')) throw err;
+      }
+    }
+
+    const activeCreds = this.cloudCredentials.filter((c) => c.isActive);
+    const results: ReScanSummaryResult[] = [];
+
+    for (const cred of activeCreds) {
+      const res = await this.scanCloudCredential(cred.id);
+      results.push(res);
+    }
+
+    return results;
+  }
+
+  // ===========================================================================
+  // Historical Inventory Changelogs & Drift Audit
+  // ===========================================================================
+  async getInventoryHistory(inventoryId: string): Promise<InventoryHistory[]> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/inventories/${inventoryId}/history`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) return data;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to fetch inventory history from backend', err);
+      }
+    }
+
+    return this.inventoryHistories.filter((h) => h.inventoryId === inventoryId);
+  }
+
+  async getAllRecentHistory(limit = 50): Promise<InventoryHistory[]> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/inventories/history/recent?limit=${limit}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) return data;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to fetch recent history from backend', err);
+      }
+    }
+
+    return this.inventoryHistories.slice(0, limit);
+  }
+
+  // ===========================================================================
   // Access Grants & PAM
   // ===========================================================================
   async getAccessGrants(): Promise<AccessGrant[]> {
@@ -629,27 +1050,49 @@ class ApiClient {
   async requestAccess(data: {
     inventoryId: string;
     projectId?: string;
+    employeeId?: string;
     accessLevel: any;
-    grantType: any;
-    durationHours: number;
+    grantType?: any;
+    durationHours?: number;
     justification: string;
   }): Promise<AccessGrant> {
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/request`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (res.ok) {
+          const created = await res.json();
+          this.accessGrants.unshift(created);
+          return created;
+        }
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || `Request failed with status ${res.status}`);
+      } catch (err: any) {
+        console.warn('[ApiClient] Failed to request access on backend:', err);
+        throw err;
+      }
+    }
+
     const inv = this.inventories.find((i) => i.id === data.inventoryId) || this.inventories[0];
-    const emp = this.employees[2];
+    const emp = this.employees.find((e) => e.id === data.employeeId) || this.employees[0];
 
     const now = new Date();
+    const duration = data.durationHours || 4;
     const newGrant: AccessGrant = {
       id: `ag_${Date.now()}`,
       employeeId: emp?.id || 'emp_1',
-      inventoryId: inv?.id || 'inv_1',
+      inventoryId: inv?.id || data.inventoryId,
       projectId: data.projectId,
       accessLevel: data.accessLevel,
-      grantType: data.grantType,
+      grantType: data.grantType || 'TEMPORARY_TIMED',
       status: 'PENDING',
       justification: data.justification,
       requestedStartTime: now.toISOString(),
-      requestedEndTime: new Date(now.getTime() + data.durationHours * 3600 * 1000).toISOString(),
-      metadata: { durationHours: data.durationHours },
+      requestedEndTime: new Date(now.getTime() + duration * 3600 * 1000).toISOString(),
+      metadata: { durationHours: duration },
       employee: emp,
       inventory: inv,
       createdAt: now.toISOString(),
@@ -662,9 +1105,9 @@ class ApiClient {
       id: `log_${Date.now()}`,
       grantId: newGrant.id,
       employeeId: emp?.id || 'emp_1',
-      inventoryId: inv?.id || 'inv_1',
+      inventoryId: inv?.id || data.inventoryId,
       action: 'ACCESS_REQUESTED',
-      metadata: { accessLevel: data.accessLevel, durationHours: data.durationHours },
+      metadata: { accessLevel: data.accessLevel, durationHours: duration },
       createdAt: now.toISOString(),
     });
 
@@ -723,6 +1166,20 @@ class ApiClient {
     }
     this.accessGrants = this.accessGrants.filter((g) => g.id !== id);
     return { success: true };
+  }
+
+  async deleteAccessGrants(ids: string[]): Promise<{ success: boolean; deletedCount: number; errors: string[] }> {
+    let deletedCount = 0;
+    const errors: string[] = [];
+    for (const id of ids) {
+      const res = await this.deleteAccessGrant(id);
+      if (res.success) {
+        deletedCount++;
+      } else if (res.error) {
+        errors.push(res.error);
+      }
+    }
+    return { success: errors.length === 0, deletedCount, errors };
   }
 
   async approveAccess(grantId: string, notes?: string): Promise<AccessGrant> {
@@ -943,6 +1400,20 @@ class ApiClient {
     }
     this.employees = this.employees.filter((e) => e.id !== id);
     return { success: true };
+  }
+
+  async deleteEmployees(ids: string[]): Promise<{ success: boolean; deletedCount: number; errors: string[] }> {
+    let deletedCount = 0;
+    const errors: string[] = [];
+    for (const id of ids) {
+      const res = await this.deleteEmployee(id);
+      if (res.success) {
+        deletedCount++;
+      } else if (res.error) {
+        errors.push(res.error);
+      }
+    }
+    return { success: errors.length === 0, deletedCount, errors };
   }
 
   async getDepartments(): Promise<Department[]> {

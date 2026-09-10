@@ -188,3 +188,72 @@ export interface MiscEntry {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface CloudCredential {
+  id: string;
+  name: string;
+  provider: CloudProvider;
+  keyBlob: Record<string, any> | string;
+  clientId?: string;
+  client?: Client;
+  metadata: {
+    projectId?: string;
+    accountEmail?: string;
+    keyType?: string;
+    privateKeyId?: string;
+    originalFileName?: string;
+    importedAt?: string;
+    [key: string]: any;
+  };
+  autoScanInterval: string; // '15m' | '30m' | '1h' | '6h' | '12h' | '24h' | 'OFF'
+  isActive: boolean;
+  lastScannedAt?: string;
+  scanStatus: 'IDLE' | 'SCANNING' | 'SUCCESS' | 'FAILED';
+  lastScanError?: string;
+  lastScanSummary?: {
+    totalDiscovered?: number;
+    newAssetsCount?: number;
+    updatedAssetsCount?: number;
+    unchangedAssetsCount?: number;
+    decommissionedAssetsCount?: number;
+    lastScannedAt?: string;
+    [key: string]: any;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InventoryHistory {
+  id: string;
+  inventoryId: string;
+  serviceAccountId?: string;
+  changeType: 'CREATED' | 'UPDATED' | 'SPECS_CHANGED' | 'STATUS_CHANGED' | 'IP_CHANGED' | 'DRIFT_DETECTED' | 'DISCOVERED_NEW' | 'TERMINATED' | 'MANUAL_EDIT' | 'CLOUD_IMPORT';
+  changeSummary: string;
+  previousState?: Record<string, any>;
+  newState?: Record<string, any>;
+  source: 'AUTOMATED_SCAN' | 'MANUAL_SCAN' | 'USER_ACTION' | 'MANUAL_EDIT' | 'CLOUD_IMPORT';
+  createdAt: string;
+  inventory?: InventoryItem;
+  serviceAccount?: CloudCredential;
+}
+
+export interface ReScanSummaryResult {
+  credentialId: string;
+  credentialName: string;
+  provider: CloudProvider;
+  projectId?: string;
+  scannedAt: string;
+  totalDiscovered: number;
+  newAssetsCount: number;
+  updatedAssetsCount: number;
+  unchangedAssetsCount: number;
+  decommissionedAssetsCount: number;
+  driftEvents: Array<{
+    inventoryId: string;
+    assetTag: string;
+    assetName: string;
+    changeType: string;
+    changeSummary: string;
+  }>;
+}
+

@@ -37,6 +37,7 @@ export class AccessController {
     @CurrentUser() user: UserContext,
     @Body()
     body: {
+      employeeId?: string;
       inventoryId: string;
       projectId?: string;
       accessLevel: any;
@@ -46,7 +47,7 @@ export class AccessController {
     },
   ) {
     return this.accessService.requestAccess({
-      employeeId: user?.userId || 'e1111111-1111-1111-1111-111111111111',
+      employeeId: body.employeeId || user?.userId || 'e1111111-1111-1111-1111-111111111111',
       inventoryId: body.inventoryId,
       projectId: body.projectId,
       accessLevel: body.accessLevel,

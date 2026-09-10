@@ -15,17 +15,17 @@ CREATE EXTENSION IF NOT EXISTS "btree_gist";
 -- =============================================================================
 -- 3. Enumerated Types (ENUMs)
 -- =============================================================================
-CREATE TYPE client_status_enum AS ENUM ('ACTIVE', 'INACTIVE', 'PROSPECT', 'SUSPENDED');
-CREATE TYPE contract_type_enum AS ENUM ('MANAGED_SERVICE', 'FIXED_PROJECT', 'TIME_AND_MATERIALS', 'CONSULTING', 'SLA_SUPPORT');
-CREATE TYPE contract_status_enum AS ENUM ('DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'RENEWAL_PENDING');
-CREATE TYPE project_type_enum AS ENUM ('INFRA_MIGRATION', 'MANAGED_DEVOPS', 'CLOUD_ARCHITECTURE', 'SECURITY_AUDIT', 'INTERNAL_TOOLING');
-CREATE TYPE project_status_enum AS ENUM ('INITIATION', 'PLANNING', 'IN_PROGRESS', 'MAINTENANCE', 'COMPLETED', 'ON_HOLD', 'CANCELLED');
-CREATE TYPE project_role_enum AS ENUM ('PROJECT_MANAGER', 'LEAD_ARCHITECT', 'SENIOR_SRE', 'DEVOPS_ENGINEER', 'SECURITY_ANALYST', 'QA_ENGINEER');
-CREATE TYPE employment_status_enum AS ENUM ('ACTIVE', 'PROBATION', 'ON_LEAVE', 'TERMINATED', 'RESIGNED');
+DO $$ BEGIN CREATE TYPE client_status_enum AS ENUM ('ACTIVE', 'INACTIVE', 'PROSPECT', 'SUSPENDED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE contract_type_enum AS ENUM ('MANAGED_SERVICE', 'FIXED_PROJECT', 'TIME_AND_MATERIALS', 'CONSULTING', 'SLA_SUPPORT'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE contract_status_enum AS ENUM ('DRAFT', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'RENEWAL_PENDING'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE project_type_enum AS ENUM ('INFRA_MIGRATION', 'MANAGED_DEVOPS', 'CLOUD_ARCHITECTURE', 'SECURITY_AUDIT', 'INTERNAL_TOOLING'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE project_status_enum AS ENUM ('INITIATION', 'PLANNING', 'IN_PROGRESS', 'MAINTENANCE', 'COMPLETED', 'ON_HOLD', 'CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE project_role_enum AS ENUM ('PROJECT_MANAGER', 'LEAD_ARCHITECT', 'SENIOR_SRE', 'DEVOPS_ENGINEER', 'SECURITY_ANALYST', 'QA_ENGINEER'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE employment_status_enum AS ENUM ('ACTIVE', 'PROBATION', 'ON_LEAVE', 'TERMINATED', 'RESIGNED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Unified Inventory ENUMs
-CREATE TYPE asset_scope_enum AS ENUM ('INTERNAL', 'CLIENT');
-CREATE TYPE asset_type_enum AS ENUM (
+DO $$ BEGIN CREATE TYPE asset_scope_enum AS ENUM ('INTERNAL', 'CLIENT'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE asset_type_enum AS ENUM (
     'VIRTUAL_MACHINE', 
     'CLOUD_ACCOUNT', 
     'VPN_GATEWAY', 
@@ -34,15 +34,15 @@ CREATE TYPE asset_type_enum AS ENUM (
     'STORAGE_BUCKET', 
     'NETWORK_VPC', 
     'OTHER'
-);
-CREATE TYPE environment_enum AS ENUM ('PROD', 'STAGING', 'DEV', 'QA', 'DR');
-CREATE TYPE asset_status_enum AS ENUM ('ACTIVE', 'MAINTENANCE', 'PROVISIONING', 'DECOMMISSIONED', 'ISOLATED');
-CREATE TYPE cloud_provider_enum AS ENUM ('AWS', 'GCP', 'ALI_CLOUD', 'DIGITAL_OCEAN', 'AZURE', 'ON_PREMISE', 'HYBRID');
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE environment_enum AS ENUM ('PROD', 'STAGING', 'DEV', 'QA', 'DR'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE asset_status_enum AS ENUM ('ACTIVE', 'MAINTENANCE', 'PROVISIONING', 'DECOMMISSIONED', 'ISOLATED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE cloud_provider_enum AS ENUM ('AWS', 'GCP', 'ALI_CLOUD', 'DIGITAL_OCEAN', 'AZURE', 'ON_PREMISE', 'HYBRID'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Unified Access Management ENUMs
-CREATE TYPE access_level_enum AS ENUM ('READ_ONLY', 'OPERATOR', 'READ_WRITE', 'ADMIN', 'ROOT_SUPERADMIN');
-CREATE TYPE access_grant_type_enum AS ENUM ('PERMANENT', 'TEMPORARY_TIMED');
-CREATE TYPE access_status_enum AS ENUM ('PENDING', 'ENDORSED', 'ACTIVE', 'REJECTED', 'EXPIRED', 'REVOKED', 'CANCELLED');
+DO $$ BEGIN CREATE TYPE access_level_enum AS ENUM ('READ_ONLY', 'OPERATOR', 'READ_WRITE', 'ADMIN', 'ROOT_SUPERADMIN'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE access_grant_type_enum AS ENUM ('PERMANENT', 'TEMPORARY_TIMED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE access_status_enum AS ENUM ('PENDING', 'ENDORSED', 'ACTIVE', 'REJECTED', 'EXPIRED', 'REVOKED', 'CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =============================================================================
 -- 4. Utility Trigger Function for updated_at
@@ -229,8 +229,48 @@ CREATE TABLE IF NOT EXISTS misc (
 );
 
 -- =============================================================================
+-- 10.2 Cloud Credentials & Service Account Key Blob Store
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS cloud_credentials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    provider cloud_provider_enum NOT NULL DEFAULT 'GCP',
+    key_blob JSONB NOT NULL DEFAULT '{}'::jsonb,
+    client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    auto_scan_interval VARCHAR(50) NOT NULL DEFAULT '1h',
+    is_active INT NOT NULL DEFAULT 1,
+    last_scanned_at TIMESTAMPTZ,
+    scan_status VARCHAR(50) NOT NULL DEFAULT 'IDLE',
+    last_scan_error TEXT,
+    last_scan_summary JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- 10.3 Inventory Historical Change Audit Logs / Drift Tracker
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS inventory_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    inventory_id UUID NOT NULL REFERENCES inventories(id) ON DELETE CASCADE,
+    service_account_id UUID REFERENCES cloud_credentials(id) ON DELETE SET NULL,
+    change_type VARCHAR(50) NOT NULL,
+    change_summary TEXT NOT NULL,
+    previous_state JSONB DEFAULT '{}'::jsonb,
+    new_state JSONB DEFAULT '{}'::jsonb,
+    source VARCHAR(50) NOT NULL DEFAULT 'AUTOMATED_SCAN',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
 -- 11. Performance Indexes (B-Tree, GIN, GiST)
 -- =============================================================================
+CREATE INDEX IF NOT EXISTS idx_cloud_credentials_provider_active ON cloud_credentials(provider, is_active);
+CREATE INDEX IF NOT EXISTS idx_cloud_credentials_client ON cloud_credentials(client_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_history_inventory ON inventory_history(inventory_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inventory_history_sa ON inventory_history(service_account_id);
+
 CREATE INDEX IF NOT EXISTS idx_clients_status ON clients(status);
 CREATE INDEX IF NOT EXISTS idx_contracts_client_status ON contracts(client_id, status);
 CREATE INDEX IF NOT EXISTS idx_projects_client_status ON projects(client_id, status);

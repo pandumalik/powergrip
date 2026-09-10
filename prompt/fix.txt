@@ -1,0 +1,6 @@
+oh i need some revision
+1. on the view off all resources (inventory, projects, client, etc) should have check box to select and options to elect all. it also have an bulk action to remove/delete all selected resouces
+2. remove all initial seed of resources, i'd rather insert it manually by myself so i also could understand the apps flow
+3. on the employe details modal, i would like to also have an list of what kind of resources/project the selected employee is currently having.
+4. the request access (create request) seems like it didnt working
+5. re-write the readme, reflecting the current condition, including the app name

@@ -200,12 +200,48 @@ export const accessAuditLogs = pgTable('access_audit_logs', {
 });
 
 // =============================================================================
+// Cloud Credentials & Service Account Key Blob Store
+// =============================================================================
+export const cloudCredentials = pgTable('cloud_credentials', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  provider: cloudProviderEnum('provider').default('GCP').notNull(),
+  keyBlob: jsonb('key_blob').$type<Record<string, any>>().notNull().default({}),
+  clientId: uuid('client_id').references(() => clients.id),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  autoScanInterval: varchar('auto_scan_interval', { length: 50 }).default('1h').notNull(),
+  isActive: integer('is_active').default(1).notNull(), // 1 = active, 0 = inactive
+  lastScannedAt: timestamp('last_scanned_at', { withTimezone: true }),
+  scanStatus: varchar('scan_status', { length: 50 }).default('IDLE').notNull(),
+  lastScanError: text('last_scan_error'),
+  lastScanSummary: jsonb('last_scan_summary').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// =============================================================================
+// Inventory Historical Change Audit Logs / Drift Tracker
+// =============================================================================
+export const inventoryHistory = pgTable('inventory_history', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  inventoryId: uuid('inventory_id').references(() => inventories.id, { onDelete: 'cascade' }).notNull(),
+  serviceAccountId: uuid('service_account_id').references(() => cloudCredentials.id, { onDelete: 'set null' }),
+  changeType: varchar('change_type', { length: 50 }).notNull(),
+  changeSummary: text('change_summary').notNull(),
+  previousState: jsonb('previous_state').$type<Record<string, any>>().default({}),
+  newState: jsonb('new_state').$type<Record<string, any>>().default({}),
+  source: varchar('source', { length: 50 }).default('AUTOMATED_SCAN').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// =============================================================================
 // Relations Definitions
 // =============================================================================
 export const clientsRelations = relations(clients, ({ many }) => ({
   contracts: many(contracts),
   projects: many(projects),
   inventories: many(inventories),
+  cloudCredentials: many(cloudCredentials),
 }));
 
 export const contractsRelations = relations(contracts, ({ one, many }) => ({
@@ -254,6 +290,26 @@ export const inventoriesRelations = relations(inventories, ({ one, many }) => ({
     references: [projects.id],
   }),
   accessGrants: many(accessGrants),
+  history: many(inventoryHistory),
+}));
+
+export const cloudCredentialsRelations = relations(cloudCredentials, ({ one, many }) => ({
+  client: one(clients, {
+    fields: [cloudCredentials.clientId],
+    references: [clients.id],
+  }),
+  historyLogs: many(inventoryHistory),
+}));
+
+export const inventoryHistoryRelations = relations(inventoryHistory, ({ one }) => ({
+  inventory: one(inventories, {
+    fields: [inventoryHistory.inventoryId],
+    references: [inventories.id],
+  }),
+  serviceAccount: one(cloudCredentials, {
+    fields: [inventoryHistory.serviceAccountId],
+    references: [cloudCredentials.id],
+  }),
 }));
 
 export const accessGrantsRelations = relations(accessGrants, ({ one }) => ({

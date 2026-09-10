@@ -70,284 +70,22 @@ async function seed() {
     }
     console.log(`✅ Seeded ${employeeData.length} core employees`);
 
-    // Fetch existing employee records to guarantee valid foreign keys
-    const allEmployees = await db.select().from(schema.employees);
-    const empMap = new Map(allEmployees.map((e) => [e.employeeNumber, e.id]));
-    const defaultPmId = empMap.get('EMP-002') || allEmployees[0]?.id;
-    const defaultDevId = empMap.get('EMP-003') || allEmployees[1]?.id;
-    const defaultSreId = empMap.get('EMP-005') || allEmployees[2]?.id;
+    // =========================================================================
+    // 3. Clean up any pre-existing dummy resource entities
+    // (Allowing user to input all clients, projects, inventories, and grants manually)
+    // =========================================================================
+    await db.delete(schema.inventoryHistory);
+    await db.delete(schema.accessAuditLogs);
+    await db.delete(schema.accessGrants);
+    await db.delete(schema.inventories);
+    await db.delete(schema.cloudCredentials);
+    await db.delete(schema.projects);
+    await db.delete(schema.contracts);
+    await db.delete(schema.clients);
+    console.log('🧹 Cleaned resource tables (Clients, Projects, Inventories, Grants) for clean slate manual input');
 
     // =========================================================================
-    // 3. Seed Enterprise Clients
-    // =========================================================================
-    const clientFintech = {
-      id: 'a9876543-b123-4567-8901-cdef01234567',
-      code: 'CLI-FINTECH-ID',
-      name: 'PT Nusantara Fintech Mandiri',
-      status: 'ACTIVE' as any,
-      industry: 'Financial Services',
-      billingEmail: 'finance@nusantarafintech.id',
-      contactPhone: '+62 21 5299 1000',
-      country: 'Indonesia',
-      city: 'Jakarta Selatan',
-      address: 'Pacific Century Place Level 21, SCBD',
-      timezone: 'Asia/Jakarta',
-    };
-
-    const clientLogistics = {
-      id: 'b9876543-b123-4567-8901-cdef01234568',
-      code: 'CLI-LOGISTICS-SG',
-      name: 'Asean Express Logistics Pte Ltd',
-      status: 'ACTIVE' as any,
-      industry: 'Logistics & Supply Chain',
-      billingEmail: 'billing@aseanexpress.com',
-      contactPhone: '+65 6789 0123',
-      country: 'Singapore',
-      city: 'Singapore',
-      address: '71 Robinson Road #14-01',
-      timezone: 'Asia/Singapore',
-    };
-
-    const clientBank = {
-      id: 'c9876543-b123-4567-8901-cdef01234569',
-      code: 'CLI-BANK-01',
-      name: 'Bank Mega Digital Indonesia',
-      status: 'ACTIVE' as any,
-      industry: 'Financial Services',
-      billingEmail: 'procurement@bankmegadigital.co.id',
-      contactPhone: '+62 21 7917 5000',
-      country: 'Indonesia',
-      city: 'Jakarta Pusat',
-      address: 'Menara Mega Digital, Jl. MH Thamrin',
-      timezone: 'Asia/Jakarta',
-    };
-
-    await db.insert(schema.clients).values(clientFintech).onConflictDoNothing();
-    await db.insert(schema.clients).values(clientLogistics).onConflictDoNothing();
-    await db.insert(schema.clients).values(clientBank).onConflictDoNothing();
-    console.log('✅ Enterprise Clients seeded');
-
-    // =========================================================================
-    // 4. Seed Contracts
-    // =========================================================================
-    const contractsList = [
-      {
-        id: 'c1234567-8901-2345-6789-012345678901',
-        clientId: clientFintech.id,
-        contractNumber: 'CTR-2026-GCP-009',
-        title: 'Managed Cloud Infrastructure & 24/7 SRE',
-        contractType: 'MANAGED_SERVICE' as any,
-        startDate: '2026-01-01',
-        endDate: '2026-12-31',
-        slaLevel: '99.99% Critical SLA',
-        status: 'ACTIVE' as any,
-        value: '180000.00',
-        currency: 'USD',
-      },
-      {
-        id: 'c1234567-8901-2345-6789-012345678902',
-        clientId: clientLogistics.id,
-        contractNumber: 'CTR-2026-AWS-014',
-        title: 'Cross-Border Logistics Microservices Architecture',
-        contractType: 'FIXED_PROJECT' as any,
-        startDate: '2026-02-01',
-        endDate: '2026-08-31',
-        slaLevel: '99.9% High Availability',
-        status: 'ACTIVE' as any,
-        value: '95000.00',
-        currency: 'USD',
-      },
-    ];
-
-    for (const ctr of contractsList) {
-      await db.insert(schema.contracts).values(ctr).onConflictDoNothing();
-    }
-    console.log('✅ Contracts seeded');
-
-    // =========================================================================
-    // 5. Seed Projects
-    // =========================================================================
-    const projectFintech = {
-      id: 'f1234567-8901-2345-6789-012345678901',
-      clientId: clientFintech.id,
-      contractId: contractsList[0].id,
-      projectManagerId: defaultPmId,
-      code: 'PRJ-FINTECH-01',
-      name: 'Fintech Core Kubernetes Migration',
-      projectType: 'INFRA_MIGRATION' as any,
-      status: 'IN_PROGRESS' as any,
-      startDate: '2026-01-15',
-      endDate: '2026-06-30',
-      description: 'Zero-downtime containerization and database replication to GCP asia-southeast2.',
-      assignedMembers: [
-        { employee_id: defaultDevId, role: 'DEVOPS_ENGINEER', assigned_at: '2026-01-15' },
-        { employee_id: defaultSreId, role: 'SRE_LEAD', assigned_at: '2026-01-15' },
-      ],
-      tags: ['GCP', 'K8s', 'Fintech', 'Zero-Downtime'],
-    };
-
-    const projectLogistics = {
-      id: 'f1234567-8901-2345-6789-012345678902',
-      clientId: clientLogistics.id,
-      contractId: contractsList[1].id,
-      projectManagerId: defaultPmId,
-      code: 'PRJ-LOGISTICS-02',
-      name: 'Multi-Cloud SRE & NOC Modernization',
-      projectType: 'MANAGED_DEVOPS' as any,
-      status: 'IN_PROGRESS' as any,
-      startDate: '2026-02-01',
-      endDate: '2026-09-30',
-      description: 'Distributed tracing, Prometheus metrics aggregation, and automatic failover.',
-      assignedMembers: [
-        { employee_id: defaultDevId, role: 'DEVOPS_ENGINEER', assigned_at: '2026-02-01' },
-      ],
-      tags: ['AWS', 'Observability', 'Grafana', 'SRE'],
-    };
-
-    await db.insert(schema.projects).values(projectFintech).onConflictDoNothing();
-    await db.insert(schema.projects).values(projectLogistics).onConflictDoNothing();
-    console.log('✅ Projects seeded');
-
-    // =========================================================================
-    // 6. Seed Inventories (CMDB)
-    // =========================================================================
-    const initialInventories = [
-      {
-        id: '01234567-8901-2345-6789-012345678901',
-        clientId: clientFintech.id,
-        projectId: projectFintech.id,
-        assetTag: 'AST-K8S-FINTECH-01',
-        name: 'fintech-core-gke-prod-01',
-        assetScope: 'CLIENT' as any,
-        assetType: 'KUBERNETES' as any,
-        environment: 'PROD' as any,
-        status: 'ACTIVE' as any,
-        provider: 'GCP' as any,
-        region: 'asia-southeast2',
-        primaryIp: '10.140.3.10',
-        specs: { k8s_version: 'v1.31.2-gke.100', node_pools: 2, total_nodes: 6, total_cpu: 32, total_ram_gb: 128 },
-        connectionInfo: { bastion_required: true, ssh_port: 22 },
-        tags: { env: 'production', cluster_tier: 'mission-critical' },
-      },
-      {
-        id: '01234567-8901-2345-6789-012345678902',
-        clientId: clientFintech.id,
-        projectId: projectFintech.id,
-        assetTag: 'AST-DB-FINTECH-02',
-        name: 'fintech-db-pg-master',
-        assetScope: 'CLIENT' as any,
-        assetType: 'DATABASE' as any,
-        environment: 'PROD' as any,
-        status: 'ACTIVE' as any,
-        provider: 'GCP' as any,
-        region: 'asia-southeast2',
-        primaryIp: '10.140.2.20',
-        specs: { engine: 'PostgreSQL 16.2 Enterprise', disk_gb: 500, ha_enabled: true, tier: 'db-custom-8-32768' },
-        connectionInfo: { bastion_required: true, db_port: 5432 },
-        tags: { db: 'postgres', replication: 'sync' },
-      },
-      {
-        id: '01234567-8901-2345-6789-012345678903',
-        clientId: clientFintech.id,
-        projectId: projectFintech.id,
-        assetTag: 'AST-VM-FINTECH-03',
-        name: 'fintech-edge-bastion-01',
-        assetScope: 'CLIENT' as any,
-        assetType: 'VIRTUAL_MACHINE' as any,
-        environment: 'PROD' as any,
-        status: 'ACTIVE' as any,
-        provider: 'GCP' as any,
-        region: 'asia-southeast2',
-        primaryIp: '10.140.1.15',
-        specs: { cpu_cores: 8, ram_gb: 32, disk_gb: 200, os: 'Ubuntu 24.04 LTS', machine_type: 'e2-standard-8' },
-        connectionInfo: { bastion_required: false, ssh_port: 22 },
-        tags: { role: 'bastion', security_zone: 'dmz' },
-      },
-      {
-        id: '01234567-8901-2345-6789-012345678904',
-        clientId: null,
-        projectId: null,
-        assetTag: 'AST-SEC-INTERNAL-01',
-        name: 'powergrip-msp-internal-vault',
-        assetScope: 'INTERNAL' as any,
-        assetType: 'VIRTUAL_MACHINE' as any,
-        environment: 'PROD' as any,
-        status: 'ACTIVE' as any,
-        provider: 'ON_PREMISE' as any,
-        region: 'ap-southeast-3',
-        primaryIp: '192.168.10.5',
-        specs: { cpu_cores: 16, ram_gb: 64, disk_gb: 500, os: 'Debian 12 Hardened' },
-        connectionInfo: { ssh_port: 2222, vpn_required: true },
-        tags: { service: 'hashicorp-vault', security_level: 'top-secret' },
-      },
-    ];
-
-    for (const inv of initialInventories) {
-      await db.insert(schema.inventories).values(inv).onConflictDoNothing();
-    }
-    console.log(`✅ Seeded ${initialInventories.length} unified CMDB inventory assets`);
-
-    // =========================================================================
-    // 7. Seed Access Grants & Audit Logs
-    // =========================================================================
-    const initialGrants = [
-      {
-        id: 'a1234567-8901-2345-6789-012345678901',
-        employeeId: defaultDevId,
-        inventoryId: initialInventories[0].id,
-        projectId: projectFintech.id,
-        accessLevel: 'ROOT_SUPERADMIN' as any,
-        grantType: 'TEMPORARY_TIMED' as any,
-        status: 'ACTIVE' as any,
-        justification: 'Conducting live kernel live-patching and security hardening (Ticket #INC-8901).',
-        validFrom: new Date(),
-        validUntil: new Date(Date.now() + 4 * 3600 * 1000),
-        reviewedBy: defaultPmId,
-        reviewedAt: new Date(),
-        reviewNotes: 'Authorized by Head of SRE',
-      },
-      {
-        id: 'a1234567-8901-2345-6789-012345678902',
-        employeeId: defaultSreId,
-        inventoryId: initialInventories[1].id,
-        projectId: projectFintech.id,
-        accessLevel: 'READ_WRITE' as any,
-        grantType: 'TEMPORARY_TIMED' as any,
-        status: 'PENDING' as any,
-        justification: 'Applying PostgreSQL performance index optimizations for fintech reporting pipeline.',
-        requestedStartTime: new Date(),
-        requestedEndTime: new Date(Date.now() + 2 * 3600 * 1000),
-      },
-    ];
-
-    for (const grant of initialGrants) {
-      await db.insert(schema.accessGrants).values(grant).onConflictDoNothing();
-    }
-
-    await db.insert(schema.accessAuditLogs).values([
-      {
-        grantId: initialGrants[0].id,
-        employeeId: initialGrants[0].employeeId,
-        inventoryId: initialGrants[0].inventoryId,
-        action: 'ACCESS_APPROVED_ACTIVATED',
-        ipAddress: '180.252.120.45',
-        sessionId: 'sess-890123',
-        metadata: { duration: '4h', authorizedBy: 'Alex Mercer' },
-      },
-      {
-        grantId: initialGrants[1].id,
-        employeeId: initialGrants[1].employeeId,
-        inventoryId: initialGrants[1].inventoryId,
-        action: 'ACCESS_REQUESTED',
-        ipAddress: '180.252.120.45',
-        sessionId: 'sess-890124',
-        metadata: { justification: 'Postgres Index Optimization' },
-      },
-    ]).onConflictDoNothing();
-    console.log('✅ Access grants and audit logs seeded');
-
-    // =========================================================================
-    // 8. Seed MISC Industries
+    // 4. Seed MISC Industries Catalog
     // =========================================================================
     await db.insert(schema.misc).values({
       key: 'INDUSTRIES',
@@ -366,7 +104,7 @@ async function seed() {
     }).onConflictDoNothing();
     console.log('✅ MISC Industries catalog seeded');
 
-    console.log('🎉 100% Real Database Seeding successfully completed!');
+    console.log('🎉 Clean Base Database Seeding successfully completed! Ready for manual resource input.');
   } catch (err) {
     console.error('❌ Seeding error:', err);
   } finally {

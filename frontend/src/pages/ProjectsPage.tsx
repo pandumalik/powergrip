@@ -3,6 +3,7 @@ import { api } from '@/services/api';
 import { Project, Client, Employee, ProjectRole } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
+import { BulkActionToolbar } from '@/components/common/BulkActionToolbar';
 import {
   FolderGit2,
   Plus,
@@ -24,6 +25,12 @@ export const ProjectsPage: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [search, setSearch] = useState('');
+
+  // Bulk Selection State
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   // Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -235,6 +242,38 @@ export const ProjectsPage: React.FC = () => {
     }
   };
 
+  const handleToggleSelect = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  };
+
+  const handleSelectAll = () => {
+    setSelectedIds(filtered.map((p) => p.id));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedIds([]);
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setIsBulkDeleting(true);
+    setBulkDeleteError(null);
+    const res = await api.deleteProjects(selectedIds);
+    setIsBulkDeleting(false);
+    if (res.success) {
+      setProjects((prev) => prev.filter((p) => !selectedIds.includes(p.id)));
+      setSelectedIds([]);
+      setIsBulkDeleteModalOpen(false);
+      await loadData();
+    } else {
+      setBulkDeleteError(res.errors?.join(', ') || 'Failed to delete selected projects');
+      await loadData();
+    }
+  };
+
   const handleAddMemberToEditing = () => {
     if (!editingProject || !newMemberEmpId) return;
     const current = editingProject.assignedMembers || [];
@@ -272,6 +311,9 @@ export const ProjectsPage: React.FC = () => {
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <FolderGit2 className="w-5 h-5 text-purple-400" />
             Projects
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
+              {projects.length} Total
+            </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             Tracking customer project deliverables and embedded DevOps squad rosters. Click any card to edit.
@@ -302,40 +344,86 @@ export const ProjectsPage: React.FC = () => {
         />
       </div>
 
+      {/* Bulk Action Toolbar */}
+      <BulkActionToolbar
+        selectedCount={selectedIds.length}
+        totalCount={filtered.length}
+        onSelectAll={handleSelectAll}
+        onDeselectAll={handleDeselectAll}
+        onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
+        isAllSelected={selectedIds.length === filtered.length && filtered.length > 0}
+        resourceName="projects"
+        deleteLabel={`Delete Selected (${selectedIds.length})`}
+      />
+
       {/* Projects Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {filtered.map((project) => (
-          <div
-            key={project.id}
-            onClick={() => {
-              setEditDateError('');
-              setEditingProject({ ...project });
-            }}
-            className="glass-panel glass-panel-hover rounded-2xl p-5 flex flex-col justify-between cursor-pointer group border border-slate-800 hover:border-purple-500/40 transition-all duration-200"
-          >
-            <div>
-              {/* Header */}
-              <div className="flex items-start justify-between">
+        {filtered.length === 0 ? (
+          <div className="col-span-2 glass-panel rounded-2xl p-12 text-center text-slate-500 text-xs">
+            No projects found matching search criteria. Click "Initialize Project" to create one.
+          </div>
+        ) : (
+          filtered.map((project) => {
+            const isSelected = selectedIds.includes(project.id);
+            return (
+              <div
+                key={project.id}
+                onClick={() => {
+                  setEditDateError('');
+                  setEditingProject({ ...project });
+                }}
+                className={`glass-panel glass-panel-hover rounded-2xl p-5 flex flex-col justify-between cursor-pointer group border transition-all duration-200 ${
+                  isSelected
+                    ? 'border-brand-500/60 bg-brand-500/5 shadow-lg shadow-brand-500/10'
+                    : 'border-slate-800 hover:border-purple-500/40'
+                }`}
+              >
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-purple-300 border border-purple-500/30">
-                      {project.code}
-                    </span>
-                    <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
-                      <Building className="w-3 h-3" />
-                      {project.client?.name || 'Client Unlinked'}
-                    </span>
-                    <span className="text-[10px] text-purple-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity font-semibold">
-                      <Edit3 className="w-3 h-3" /> Click to Edit
-                    </span>
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="pt-0.5"
+                        onClick={(e) => handleToggleSelect(project.id, e)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-purple-300 border border-purple-500/30">
+                            {project.code}
+                          </span>
+                          <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
+                            <Building className="w-3 h-3" />
+                            {project.client?.name || 'Client Unlinked'}
+                          </span>
+                          <span className="text-[10px] text-purple-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity font-semibold">
+                            <Edit3 className="w-3 h-3" /> Click to Edit
+                          </span>
+                        </div>
+                        <h3 className="text-base font-bold text-white mt-1.5 group-hover:text-purple-300 transition-colors">
+                          {project.name}
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-1 line-clamp-2">{project.description || 'No description provided.'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={project.status} />
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteClick(project, e)}
+                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors"
+                        title={`Delete project ${project.name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <h3 className="text-base font-bold text-white mt-1.5 group-hover:text-purple-300 transition-colors">
-                    {project.name}
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1 line-clamp-2">{project.description || 'No description provided.'}</p>
-                </div>
-                <StatusBadge status={project.status} />
-              </div>
 
               {/* Tags & Dates */}
               <div className="flex flex-wrap items-center gap-2 mt-4">
@@ -403,8 +491,10 @@ export const ProjectsPage: React.FC = () => {
               <span className="font-mono text-emerald-400">Zero-Join JSONB Roster</span>
             </div>
           </div>
-        ))}
-      </div>
+        );
+      })
+    )}
+  </div>
 
       {/* Edit Project Modal */}
       {editingProject && (
@@ -881,6 +971,26 @@ export const ProjectsPage: React.FC = () => {
         confirmLabel="Delete Project"
         isLoading={isDeleting}
         errorMessage={deleteError}
+        variant="danger"
+      />
+
+      {/* Bulk Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => {
+          if (!isBulkDeleting) {
+            setIsBulkDeleteModalOpen(false);
+            setBulkDeleteError(null);
+          }
+        }}
+        onConfirm={handleConfirmBulkDelete}
+        title={`Delete ${selectedIds.length} Selected Projects`}
+        message={`Are you sure you want to permanently delete all ${selectedIds.length} selected engineering projects? Unlink associated inventory assets and access grants first if applicable.`}
+        itemName={`${selectedIds.length} Projects Selected`}
+        itemTag="BULK_DELETE"
+        confirmLabel={`Delete ${selectedIds.length} Projects`}
+        isLoading={isBulkDeleting}
+        errorMessage={bulkDeleteError}
         variant="danger"
       />
     </div>

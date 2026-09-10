@@ -18,9 +18,20 @@ export class InventoryController {
     return this.inventoryService.findAll({ scope, type, provider, clientId });
   }
 
+  @Get('history/recent')
+  async getRecentHistory(@Query('limit') limit?: string) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 50;
+    return this.inventoryService.getAllRecentHistory(parsedLimit);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.inventoryService.findOne(id);
+  }
+
+  @Get(':id/history')
+  async getHistory(@Param('id') id: string) {
+    return this.inventoryService.getInventoryHistory(id);
   }
 
   @Post()
@@ -39,6 +50,12 @@ export class InventoryController {
   @Roles('ADMIN', 'SRE_LEAD', 'DEVOPS_ENGINEER')
   async bulkImport(@Body() payload: { items: any[] }) {
     return this.inventoryService.bulkImport(payload);
+  }
+
+  @Post('rescan-all')
+  @Roles('ADMIN', 'SRE_LEAD', 'DEVOPS_ENGINEER')
+  async reScanAll() {
+    return this.inventoryService.reScanAllActiveCredentials();
   }
 
   @Put(':id')
