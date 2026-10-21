@@ -7,17 +7,13 @@ import {
   X,
   Clock,
   ArrowRight,
-  ShieldAlert,
   Server,
   Code2,
   ChevronDown,
   ChevronUp,
   Cpu,
-  RefreshCw,
-  Tag,
   CheckCircle2,
   AlertCircle,
-  FileText,
   Loader2,
 } from 'lucide-react';
 

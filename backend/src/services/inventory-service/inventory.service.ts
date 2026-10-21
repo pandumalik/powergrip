@@ -280,8 +280,9 @@ export class InventoryService {
   // Live Cloud Discovery & Service Account Key Asset Scanner
   // ===========================================================================
   async discoverCloudAssets(payload: {
-    provider: 'GCP' | 'AWS' | 'ALI_CLOUD' | 'AZURE';
-    credentials: any;
+    provider?: 'GCP' | 'AWS' | 'ALI_CLOUD' | 'AZURE';
+    credentials?: any;
+    credentialId?: string;
   }): Promise<{
     provider: string;
     projectId?: string;
@@ -291,6 +292,14 @@ export class InventoryService {
     resources: DiscoveredCloudAsset[];
   }> {
     let creds: any = payload.credentials;
+    let provider: 'GCP' | 'AWS' | 'ALI_CLOUD' | 'AZURE' = payload.provider || 'GCP';
+
+    if (payload.credentialId) {
+      const savedCred = await this.credService.findOne(payload.credentialId, true);
+      provider = savedCred.provider as any;
+      creds = savedCred.keyBlob;
+    }
+
     if (typeof creds === 'string') {
       try {
         creds = JSON.parse(creds);
@@ -299,15 +308,43 @@ export class InventoryService {
       }
     }
 
+    // Auto-detect masked key blobs and resolve to actual saved credentials
+    if (
+      creds &&
+      typeof creds === 'object' &&
+      creds.private_key &&
+      typeof creds.private_key === 'string' &&
+      creds.private_key.includes('[SECURE_CREDENTIAL_BLOB_STORED_IN_VAULT]')
+    ) {
+      const allSaved = await this.dbService.db.query.cloudCredentials.findMany();
+      const match = allSaved.find((c: any) => {
+        const raw = c.keyBlob;
+        return (
+          raw?.client_email === creds.client_email ||
+          raw?.private_key_id === creds.private_key_id ||
+          raw?.project_id === creds.project_id
+        );
+      });
+      if (match) {
+        const savedFull = await this.credService.findOne(match.id, true);
+        provider = savedFull.provider as any;
+        creds = savedFull.keyBlob;
+      } else {
+        throw new BadRequestException(
+          'The provided credential has masked private keys. Please provide a valid credential ID or unmasked Service Account key JSON.',
+        );
+      }
+    }
+
     if (!creds || typeof creds !== 'object') {
-      throw new BadRequestException('Credentials payload must be an object or valid JSON string.');
+      throw new BadRequestException('Credentials payload must be an object, valid JSON string, or valid credentialId.');
     }
 
     let projectId = 'cloud-project';
     let accountEmail = 'service-account@iam.gserviceaccount.com';
     let candidatePool: Omit<DiscoveredCloudAsset, 'isDuplicate' | 'duplicateReason' | 'existingAssetTag' | 'existingId'>[] = [];
 
-    if (payload.provider === 'GCP') {
+    if (provider === 'GCP') {
       if (creds.type && creds.type !== 'service_account') {
         throw new BadRequestException('The uploaded file is not a valid GCP Service Account JSON key.');
       }
@@ -340,7 +377,7 @@ export class InventoryService {
           name: `${sanitizedProj}-api-gateway-01`,
           assetTag: `AST-VM-${sanitizedProj.slice(0, 6).toUpperCase()}-01`,
           assetType: 'VIRTUAL_MACHINE',
-          provider: payload.provider,
+          provider: provider,
           region: 'asia-southeast2',
           zone: 'asia-southeast2-a',
           primaryIp: '10.140.1.15',
@@ -393,7 +430,7 @@ export class InventoryService {
     });
 
     return {
-      provider: payload.provider,
+      provider,
       projectId,
       accountEmail,
       discoveredCount: resources.length,

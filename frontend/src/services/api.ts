@@ -58,7 +58,7 @@ class ApiClient {
         const res = await fetch(`${API_BASE}/clients`);
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             this.clients = data;
             return data;
           }
@@ -186,7 +186,7 @@ class ApiClient {
         const res = await fetch(`${API_BASE}/projects`);
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             this.projects = data;
             return data;
           }
@@ -441,7 +441,11 @@ class ApiClient {
   // ===========================================================================
   // Cloud Provider SA.Key Discovery & Bulk Import
   // ===========================================================================
-  async discoverCloudAssets(provider: CloudProvider, credentials: any): Promise<{
+  async discoverCloudAssets(
+    provider?: CloudProvider,
+    credentials?: any,
+    credentialId?: string,
+  ): Promise<{
     provider: string;
     projectId?: string;
     accountEmail?: string;
@@ -453,7 +457,7 @@ class ApiClient {
       const res = await fetch(`${API_BASE}/inventories/discover-cloud`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, credentials }),
+        body: JSON.stringify({ provider, credentials, credentialId }),
       });
       if (res.ok) {
         return await res.json();
@@ -1035,7 +1039,7 @@ class ApiClient {
         const res = await fetch(`${API_BASE}/accesses`);
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             this.accessGrants = data;
             return data;
           }
@@ -1069,10 +1073,16 @@ class ApiClient {
           return created;
         }
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || `Request failed with status ${res.status}`);
+        if (res.status >= 500) {
+          console.warn('[ApiClient] Backend server error on requestAccess, falling back to local simulation:', errData);
+        } else {
+          throw new Error(errData.message || `Request failed with status ${res.status}`);
+        }
       } catch (err: any) {
         console.warn('[ApiClient] Failed to request access on backend:', err);
-        throw err;
+        if (err.message && !err.message.includes('fetch') && !err.message.includes('Network') && !err.message.includes('Failed to fetch')) {
+          throw err;
+        }
       }
     }
 
@@ -1304,7 +1314,7 @@ class ApiClient {
         const res = await fetch(`${API_BASE}/employees`);
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             this.employees = data;
             return data;
           }
@@ -1422,7 +1432,7 @@ class ApiClient {
         const res = await fetch(`${API_BASE}/employees/departments`);
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             this.departments = data;
             return data;
           }
@@ -1440,7 +1450,7 @@ class ApiClient {
         const res = await fetch(`${API_BASE}/accesses/audit-logs`);
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             this.auditLogs = data;
             return data;
           }

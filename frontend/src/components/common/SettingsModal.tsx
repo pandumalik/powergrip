@@ -98,7 +98,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setTimeout(() => setJsonStatus(''), 3000);
   };
 
-  const handleApplyColorPreset = (preset: { primary: string; secondary: string; accent: string }) => {
+  const handleApplyColorPreset = (preset: { name?: string; primary: string; secondary: string; accent: string }) => {
     const updated = {
       ...formData,
       branding: {
@@ -111,6 +111,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setFormData(updated);
     updateConfig(updated);
     setJsonInput(JSON.stringify(updated, null, 2));
+    if (preset.name) {
+      setJsonStatus(`Applied "${preset.name}" color theme!`);
+      setTimeout(() => setJsonStatus(''), 2500);
+    }
   };
 
   const handleDownloadConfig = () => {
@@ -368,43 +372,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         {activeTab === 'colors' && (
           <div className="space-y-4">
             <p className="text-xs text-slate-400">
-              Customize the brand identity palette. The selected primary color immediately skins buttons, badges, highlights, and logos.
+              Customize the brand identity palette. The selected primary color immediately skins buttons, badges, highlights, and logos in real-time.
             </p>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {presetBrandColors.map((preset) => (
-                <button
-                  key={preset.name}
-                  type="button"
-                  onClick={() => handleApplyColorPreset(preset)}
-                  className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-600 text-left transition-all group"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="w-5 h-5 rounded-full shadow-md" style={{ backgroundColor: preset.primary }} />
-                    <span className="w-4 h-4 rounded-full shadow-md" style={{ backgroundColor: preset.secondary }} />
-                    <span className="w-3 h-3 rounded-full shadow-md" style={{ backgroundColor: preset.accent }} />
-                  </div>
-                  <span className="text-xs font-bold text-white group-hover:text-brand-400 transition-colors block">
-                    {preset.name}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400">{preset.primary}</span>
-                </button>
-              ))}
+              {presetBrandColors.map((preset) => {
+                const isSelected =
+                  formData.branding.primaryColor?.toLowerCase() === preset.primary.toLowerCase();
+                return (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={() => handleApplyColorPreset(preset)}
+                    className={`p-3 rounded-xl border text-left transition-all group relative ${
+                      isSelected
+                        ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-500/10 ring-1 ring-brand-500/40'
+                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full shadow-md" style={{ backgroundColor: preset.primary }} />
+                        <span className="w-4 h-4 rounded-full shadow-md" style={{ backgroundColor: preset.secondary }} />
+                        <span className="w-3 h-3 rounded-full shadow-md" style={{ backgroundColor: preset.accent }} />
+                      </div>
+                      {isSelected && <CheckCircle2 className="w-4 h-4 text-brand-400" />}
+                    </div>
+                    <span className="text-xs font-bold text-white group-hover:text-brand-400 transition-colors block">
+                      {preset.name}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">{preset.primary}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Custom HEX Primary Code</label>
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+              <label className="block text-xs font-semibold text-slate-300">Custom HEX Primary Color</label>
               <div className="flex items-center gap-3">
                 <input
                   type="color"
-                  value={formData.branding.primaryColor}
-                  onChange={(e) => handleApplyColorPreset({ primary: e.target.value, secondary: '#3b82f6', accent: '#8b5cf6' })}
-                  className="w-10 h-10 rounded-xl cursor-pointer bg-transparent border-0"
+                  value={formData.branding.primaryColor || '#22c55e'}
+                  onChange={(e) =>
+                    handleApplyColorPreset({
+                      name: 'Custom Palette',
+                      primary: e.target.value,
+                      secondary: '#3b82f6',
+                      accent: '#8b5cf6',
+                    })
+                  }
+                  className="w-10 h-10 rounded-xl cursor-pointer bg-transparent border-0 shrink-0"
                 />
                 <input
                   type="text"
-                  value={formData.branding.primaryColor}
-                  onChange={(e) => handleApplyColorPreset({ primary: e.target.value, secondary: '#3b82f6', accent: '#8b5cf6' })}
+                  value={formData.branding.primaryColor || '#22c55e'}
+                  onChange={(e) =>
+                    handleApplyColorPreset({
+                      name: 'Custom Palette',
+                      primary: e.target.value,
+                      secondary: '#3b82f6',
+                      accent: '#8b5cf6',
+                    })
+                  }
+                  placeholder="#22c55e"
                   className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-brand-500"
                 />
               </div>

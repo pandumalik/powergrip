@@ -38,6 +38,10 @@ export class CloudCredentialService {
     let accountEmail = 'service-account';
     let keyType = 'service_account';
 
+    if (parsedBlob.private_key && typeof parsedBlob.private_key === 'string') {
+      parsedBlob.private_key = parsedBlob.private_key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim();
+    }
+
     if (parsedBlob.type === 'service_account' || parsedBlob.private_key_id) {
       detectedProvider = 'GCP';
       projectId = parsedBlob.project_id || 'gcp-project';
@@ -118,10 +122,20 @@ export class CloudCredentialService {
       throw new NotFoundException(`Cloud Credential ${id} not found`);
     }
 
+    let keyBlob = cred.keyBlob;
+    if (includeFullBlob && keyBlob && typeof keyBlob === 'object' && keyBlob.private_key) {
+      keyBlob = {
+        ...keyBlob,
+        private_key: typeof keyBlob.private_key === 'string'
+          ? keyBlob.private_key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim()
+          : keyBlob.private_key,
+      };
+    }
+
     return {
       ...cred,
       isActive: Boolean(cred.isActive),
-      keyBlob: includeFullBlob ? cred.keyBlob : CloudCredentialService.maskKeyBlob(cred.keyBlob),
+      keyBlob: includeFullBlob ? keyBlob : CloudCredentialService.maskKeyBlob(cred.keyBlob),
     };
   }
 

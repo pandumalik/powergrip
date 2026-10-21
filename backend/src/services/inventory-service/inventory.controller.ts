@@ -42,7 +42,9 @@ export class InventoryController {
 
   @Post('discover-cloud')
   @Roles('ADMIN', 'SRE_LEAD', 'DEVOPS_ENGINEER')
-  async discoverCloudAssets(@Body() payload: { provider: 'GCP' | 'AWS' | 'ALI_CLOUD' | 'AZURE'; credentials: any }) {
+  async discoverCloudAssets(
+    @Body() payload: { provider?: 'GCP' | 'AWS' | 'ALI_CLOUD' | 'AZURE'; credentials?: any; credentialId?: string },
+  ) {
     return this.inventoryService.discoverCloudAssets(payload);
   }
 

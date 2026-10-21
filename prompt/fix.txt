@@ -4,3 +4,9 @@ oh i need some revision
 3. on the employe details modal, i would like to also have an list of what kind of resources/project the selected employee is currently having.
 4. the request access (create request) seems like it didnt working
 5. re-write the readme, reflecting the current condition, including the app name
+
+
+=========================
+1. rather than having status column on the employee list, i would like to make the status as "ring" on the user name icon, active user will have green ring, as of any other status just match the color code
+2. Rather than Department & Manager, i would like it only department, and only show depattment name instead of showing "Report to direct... etc"
+3. remove eye icon and pencil button, since click-ing on the list is also the same (open modal)

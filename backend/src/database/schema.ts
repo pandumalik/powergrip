@@ -165,9 +165,9 @@ export const inventories = pgTable('inventories', {
 
 export const accessGrants = pgTable('access_grants', {
   id: uuid('id').defaultRandom().primaryKey(),
-  employeeId: uuid('employee_id').references(() => employees.id).notNull(),
-  inventoryId: uuid('inventory_id').references(() => inventories.id).notNull(),
-  projectId: uuid('project_id').references(() => projects.id),
+  employeeId: uuid('employee_id').references(() => employees.id, { onDelete: 'cascade' }).notNull(),
+  inventoryId: uuid('inventory_id').references(() => inventories.id, { onDelete: 'cascade' }).notNull(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   accessLevel: accessLevelEnum('access_level').default('READ_WRITE').notNull(),
   grantType: accessGrantTypeEnum('grant_type').default('TEMPORARY_TIMED').notNull(),
   status: accessStatusEnum('status').default('PENDING').notNull(),
@@ -189,7 +189,7 @@ export const accessGrants = pgTable('access_grants', {
 
 export const accessAuditLogs = pgTable('access_audit_logs', {
   id: uuid('id').defaultRandom().primaryKey(),
-  grantId: uuid('grant_id').references(() => accessGrants.id),
+  grantId: uuid('grant_id').references(() => accessGrants.id, { onDelete: 'set null' }),
   employeeId: uuid('employee_id').references(() => employees.id).notNull(),
   inventoryId: uuid('inventory_id').references(() => inventories.id).notNull(),
   action: varchar('action', { length: 100 }).notNull(),

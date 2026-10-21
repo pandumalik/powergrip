@@ -26,7 +26,6 @@ import {
   CheckCircle2,
   Loader2,
   Clock,
-  ShieldCheck,
 } from 'lucide-react';
 
 export const InventoriesPage: React.FC = () => {

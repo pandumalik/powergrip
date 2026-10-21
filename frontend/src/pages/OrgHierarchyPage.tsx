@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '@/services/api';
-import { Employee, Department, Project, AccessGrant, InventoryItem } from '@/types';
+import { Employee, Department, Project, AccessGrant, InventoryItem, EmploymentStatus } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
 import { BulkActionToolbar } from '@/components/common/BulkActionToolbar';
@@ -21,10 +21,7 @@ import {
   Server,
   Calendar,
   KeyRound,
-  Eye,
   Trash2,
-  Lock,
-  Layers,
 } from 'lucide-react';
 
 export const OrgHierarchyPage: React.FC = () => {
@@ -90,6 +87,23 @@ export const OrgHierarchyPage: React.FC = () => {
       return firstName;
     }
     return full;
+  };
+
+  // Helper to color the status ring around employee initials
+  const getStatusRingClass = (status: EmploymentStatus) => {
+    switch (status) {
+      case 'ACTIVE':
+        return 'ring-2 ring-emerald-500/80 text-emerald-400 bg-emerald-500/10 border-transparent';
+      case 'PROBATION':
+        return 'ring-2 ring-amber-500/80 text-amber-400 bg-amber-500/10 border-transparent';
+      case 'ON_LEAVE':
+        return 'ring-2 ring-blue-500/80 text-blue-400 bg-blue-500/10 border-transparent';
+      case 'TERMINATED':
+      case 'RESIGNED':
+        return 'ring-2 ring-rose-500/80 text-rose-400 bg-rose-500/10 border-transparent';
+      default:
+        return 'ring-2 ring-slate-600 text-slate-400 bg-slate-800 border-slate-700';
+    }
   };
 
   // Filter employees based on search, department, and status
@@ -367,22 +381,20 @@ export const OrgHierarchyPage: React.FC = () => {
                 <th className="px-4 py-3.5 min-w-[200px]">Name & ID</th>
                 <th className="px-4 py-3.5 min-w-[200px]">Job Title & Hierarchy</th>
                 <th className="px-4 py-3.5 min-w-[180px]">Email & Verification</th>
-                <th className="px-4 py-3.5 min-w-[170px]">Department & Manager</th>
-                <th className="px-4 py-3.5 min-w-[110px]">Status</th>
-                <th className="px-4 py-3.5 text-right min-w-[140px]">Actions</th>
+                <th className="px-4 py-3.5 min-w-[160px]">Department</th>
+                <th className="px-4 py-3.5 text-right min-w-[100px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {paginatedEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-slate-500">
+                  <td colSpan={6} className="px-5 py-12 text-center text-slate-500">
                     No employees matching the search criteria.
                   </td>
                 </tr>
               ) : (
                 paginatedEmployees.map((emp) => {
                   const dept = departments.find((d) => d.id === emp.departmentId);
-                  const manager = employees.find((e) => e.id === emp.managerId);
                   const displayName = formatDisplayName(emp.firstName, emp.lastName);
                   const isSelected = selectedIds.includes(emp.id);
 
@@ -407,10 +419,13 @@ export const OrgHierarchyPage: React.FC = () => {
                         />
                       </td>
 
-                      {/* Column 1: Name & ID */}
+                      {/* Column 1: Name & ID with Status Ring on Avatar */}
                       <td className="px-4 py-3 min-w-[200px]">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-brand-400 shrink-0 group-hover:border-blue-500/40 transition-colors">
+                          <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 transition-all ${getStatusRingClass(emp.employmentStatus)}`}
+                            title={`Status: ${emp.employmentStatus.replace(/_/g, ' ')}`}
+                          >
                             {emp.firstName[0]}
                             {emp.lastName[0]}
                           </div>
@@ -455,59 +470,22 @@ export const OrgHierarchyPage: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* Column 4: Department & Manager */}
-                      <td className="px-4 py-3 min-w-[170px]">
-                        <span className="inline-flex items-center gap-1 text-slate-300 text-xs truncate max-w-[160px]">
-                          <Building className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      {/* Column 4: Department Only */}
+                      <td className="px-4 py-3 min-w-[160px]">
+                        <span className="inline-flex items-center gap-1.5 text-slate-300 text-xs font-medium truncate max-w-[150px]">
+                          <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="truncate">{dept?.name || 'Unassigned'}</span>
                         </span>
-                        <span className="text-[10px] text-slate-500 block truncate mt-0.5">
-                          {manager ? `Reports to: ${manager.firstName} ${manager.lastName}` : 'Reports to: Direct'}
-                        </span>
                       </td>
 
-                      {/* Column 5: Status */}
-                      <td className="px-4 py-3 min-w-[110px]">
-                        <div>
-                          <StatusBadge status={emp.employmentStatus} />
-                        </div>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">
-                          Full-Time Staff
-                        </span>
-                      </td>
-
-                      {/* Column 6: Actions */}
-                      <td className="px-4 py-3 text-right min-w-[140px]">
+                      {/* Column 5: Actions (Offboard & Delete only) */}
+                      <td className="px-4 py-3 text-right min-w-[100px]">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedEmployeeDetails(emp);
-                            }}
-                            className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs inline-flex items-center transition-colors"
-                            title="View employee profile & assigned resources"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingEmployee({ ...emp });
-                            }}
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs inline-flex items-center transition-colors"
-                            title="Edit employee information"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-
                           {emp.employmentStatus === 'ACTIVE' && (
                             <button
                               type="button"
                               onClick={(e) => handleOffboardClick(emp, e)}
-                              className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium inline-flex items-center gap-1 transition-colors"
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium inline-flex items-center gap-1 transition-colors"
                               title="Offboard employee"
                             >
                               <UserX className="w-3 h-3" />
@@ -704,19 +682,21 @@ export const OrgHierarchyPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {employeeGrants.map((grant) => (
-                    <div
-                      key={grant.id}
-                      className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Server className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                          <p className="text-xs font-bold text-white">{grant.inventory?.name || 'Inventory Asset'}</p>
-                          <span className="text-[10px] font-mono text-slate-400">
-                            ({grant.inventory?.assetTag || 'TAG'})
-                          </span>
-                        </div>
+                  {employeeGrants.map((grant) => {
+                    const inv = grant.inventory || inventories.find((i) => i.id === grant.inventoryId);
+                    return (
+                      <div
+                        key={grant.id}
+                        className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Server className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                            <p className="text-xs font-bold text-white">{inv?.name || grant.inventory?.name || 'Inventory Asset'}</p>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              ({inv?.assetTag || grant.inventory?.assetTag || 'TAG'})
+                            </span>
+                          </div>
                         <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
                           <span>Level: <span className="text-amber-300 font-semibold">{grant.accessLevel}</span></span>
                           <span>•</span>
@@ -731,8 +711,9 @@ export const OrgHierarchyPage: React.FC = () => {
                       </div>
                       <StatusBadge status={grant.status} />
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
+              </div>
               )}
             </div>
 

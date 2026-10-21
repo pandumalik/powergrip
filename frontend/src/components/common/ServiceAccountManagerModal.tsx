@@ -17,9 +17,6 @@ import {
   FileCode,
   Zap,
   Check,
-  Calendar,
-  Layers,
-  Sparkles,
   ExternalLink,
 } from 'lucide-react';
 

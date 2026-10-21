@@ -28,6 +28,23 @@ export interface DiscoveredResource {
 
 export class GcpDiscoveryEngine {
   /**
+   * Normalizes private key strings that may contain escaped newline literals (\\n) or surrounding quotes.
+   */
+  static normalizePrivateKey(rawKey: string): string {
+    if (!rawKey) return '';
+    let key = String(rawKey).trim();
+    if (
+      (key.startsWith('"') && key.endsWith('"')) ||
+      (key.startsWith("'") && key.endsWith("'"))
+    ) {
+      key = key.slice(1, -1);
+    }
+    // Replace literal escaped \n strings with real newline characters
+    key = key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n');
+    return key;
+  }
+
+  /**
    * Generates a Google OAuth2 Access Token using JWT bearer grant for the Service Account.
    */
   static async getAccessToken(saKey: GcpServiceAccountKey): Promise<string> {
@@ -52,9 +69,10 @@ export class GcpDiscoveryEngine {
 
     const unsignedToken = `${base64Url(header)}.${base64Url(payload)}`;
 
+    const privateKey = this.normalizePrivateKey(saKey.private_key);
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(unsignedToken);
-    const signature = sign.sign(saKey.private_key, 'base64url');
+    const signature = sign.sign(privateKey, 'base64url');
     const assertion = `${unsignedToken}.${signature}`;
 
     const tokenEndpoint = saKey.token_uri || 'https://oauth2.googleapis.com/token';

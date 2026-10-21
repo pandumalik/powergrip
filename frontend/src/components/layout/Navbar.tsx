@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth, DEMO_USERS } from '@/context/AuthContext';
-import { Shield, Bell, UserCheck, RefreshCw } from 'lucide-react';
+import { Shield, UserCheck } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const { currentUser, switchUserRole } = useAuth();

@@ -14,15 +14,12 @@ import {
   FileText,
   Layers,
   Building,
-  ShieldAlert,
   Loader2,
   CheckSquare,
   Square,
   ArrowRight,
   ArrowLeft,
   KeyRound,
-  FileCode,
-  Sparkles,
 } from 'lucide-react';
 
 interface DiscoveredAsset {
@@ -196,10 +193,11 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
         }
 
         const credsToScan = savedCredentials.filter((c) => selectedCredIds.includes(c.id));
+        const scanErrors: string[] = [];
 
         for (const cred of credsToScan) {
           try {
-            const res = await api.discoverCloudAssets(cred.provider, cred.keyBlob);
+            const res = await api.discoverCloudAssets(cred.provider, undefined, cred.id);
             if (res.projectId && !projectIds.includes(res.projectId)) projectIds.push(res.projectId);
             totalDuplicates += res.duplicateCount || 0;
 
@@ -209,8 +207,13 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
             }));
             allDiscoveredResources.push(...tagged);
           } catch (scanErr: any) {
-            console.warn(`Discovery failed for ${cred.name}`, scanErr);
+            console.error(`Discovery failed for ${cred.name}`, scanErr);
+            scanErrors.push(`${cred.name}: ${scanErr.message || 'Discovery failed'}`);
           }
+        }
+
+        if (allDiscoveredResources.length === 0 && scanErrors.length > 0) {
+          throw new Error(scanErrors.join(' | '));
         }
       } else {
         // Upload Mode
@@ -248,16 +251,26 @@ export const CloudImportModal: React.FC<CloudImportModalProps> = ({
           }
         }
 
+        const scanErrors: string[] = [];
         for (const item of blobsToScan) {
-          const res = await api.discoverCloudAssets(item.provider, item.blob);
-          if (res.projectId && !projectIds.includes(res.projectId)) projectIds.push(res.projectId);
-          totalDuplicates += res.duplicateCount || 0;
+          try {
+            const res = await api.discoverCloudAssets(item.provider, item.blob);
+            if (res.projectId && !projectIds.includes(res.projectId)) projectIds.push(res.projectId);
+            totalDuplicates += res.duplicateCount || 0;
 
-          const tagged = (res.resources || []).map((r) => ({
-            ...r,
-            sourceCredentialName: item.name,
-          }));
-          allDiscoveredResources.push(...tagged);
+            const tagged = (res.resources || []).map((r) => ({
+              ...r,
+              sourceCredentialName: item.name,
+            }));
+            allDiscoveredResources.push(...tagged);
+          } catch (scanErr: any) {
+            console.error(`Discovery failed for ${item.name}`, scanErr);
+            scanErrors.push(`${item.name}: ${scanErr.message || 'Discovery failed'}`);
+          }
+        }
+
+        if (allDiscoveredResources.length === 0 && scanErrors.length > 0) {
+          throw new Error(scanErrors.join(' | '));
         }
       }
 

@@ -43,13 +43,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         <div>
           {/* Brand Header */}
           <div className="flex items-center gap-3 px-3 py-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
               <Zap className="w-5 h-5 text-white fill-white" />
             </div>
             <div>
               <h1 className="text-base font-extrabold tracking-tight text-white flex items-center gap-1.5">
                 {config.appName}{' '}
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-400 border border-brand-500/30">
                   v{config.version}
                 </span>
               </h1>
@@ -70,7 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                   onClick={() => setActiveTab(item.id)}
                   className={`w-full flex items-center px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
                     isActive
-                      ? 'bg-gradient-to-r from-brand-500/20 to-emerald-500/5 text-brand-400 border border-brand-500/30 shadow-sm'
+                      ? 'bg-gradient-to-r from-brand-500/20 to-brand-500/5 text-brand-400 border border-brand-500/30 shadow-sm'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
@@ -119,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 
           {/* Security Badge */}
           <div className="p-2.5 rounded-xl bg-slate-900/40 border border-slate-800/80 text-[11px]">
-            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold mb-0.5">
+            <div className="flex items-center gap-1.5 text-brand-400 font-semibold mb-0.5">
               <ShieldCheck className="w-3.5 h-3.5" />
               <span>{config.footer.securityBadge}</span>
             </div>
