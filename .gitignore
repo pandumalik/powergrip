@@ -7,6 +7,20 @@ node_modules/
 .pnp
 .pnp.js
 
+# Rust & Cargo Build Outputs
+target/
+**/target/
+Cargo.lock.lock
+**/*.rs.bk
+*.pdb
+*.exe
+*.dll
+*.so
+*.dylib
+*.d
+*.rlib
+*.rmeta
+
 # Build Outputs & Bundles
 dist/
 build/

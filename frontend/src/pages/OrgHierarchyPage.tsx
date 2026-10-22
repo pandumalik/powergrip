@@ -25,11 +25,11 @@ import {
 } from 'lucide-react';
 
 export const OrgHierarchyPage: React.FC = () => {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [accessGrants, setAccessGrants] = useState<AccessGrant[]>([]);
-  const [inventories, setInventories] = useState<InventoryItem[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>(() => api.getCachedEmployees());
+  const [departments, setDepartments] = useState<Department[]>(() => api.getCachedDepartments());
+  const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
+  const [accessGrants, setAccessGrants] = useState<AccessGrant[]>(() => api.getCachedAccessGrants());
+  const [inventories, setInventories] = useState<InventoryItem[]>(() => api.getCachedInventories());
 
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');

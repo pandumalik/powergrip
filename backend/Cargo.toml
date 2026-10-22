@@ -1,0 +1,42 @@
+[package]
+name = "powergrip-backend"
+version = "2.0.0"
+edition = "2021"
+description = "PowerGrip Enterprise MSP & Privileged Access Governance Platform - Rust Backend"
+authors = ["PowerGrip Engineering"]
+
+[dependencies]
+# Async Runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# Web Framework & HTTP
+axum = { version = "0.7", features = ["macros", "json", "multipart"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+http = "1.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database (Pure Rust SQLx PostgreSQL, UUID, JSON, Chrono)
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "postgres",
+    "macros",
+    "uuid",
+    "chrono",
+    "json",
+    "ipnetwork",
+    "migrate",
+] }
+
+# Core Types
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+ipnetwork = { version = "0.20", features = ["serde"] }
+
+# Configuration & Logging
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

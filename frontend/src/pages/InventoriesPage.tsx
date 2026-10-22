@@ -29,10 +29,10 @@ import {
 } from 'lucide-react';
 
 export const InventoriesPage: React.FC = () => {
-  const [inventories, setInventories] = useState<InventoryItem[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [savedCredentials, setSavedCredentials] = useState<CloudCredential[]>([]);
+  const [inventories, setInventories] = useState<InventoryItem[]>(() => api.getCachedInventories());
+  const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
+  const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
+  const [savedCredentials, setSavedCredentials] = useState<CloudCredential[]>(() => api.getCachedCloudCredentials());
   const [search, setSearch] = useState('');
 
   // Bulk Selection State

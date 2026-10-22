@@ -68,14 +68,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                  className={`w-full flex items-center px-3.5 py-2.5 rounded-xl text-xs font-semibold border transition-colors duration-150 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 select-none ${
                     isActive
-                      ? 'bg-gradient-to-r from-brand-500/20 to-brand-500/5 text-brand-400 border border-brand-500/30 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                      ? 'bg-gradient-to-r from-brand-500/20 to-brand-500/5 text-brand-400 border-brand-500/30 shadow-sm'
+                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-brand-400' : 'text-slate-400'}`} />
+                    <Icon className={`w-4 h-4 transition-colors ${isActive ? 'text-brand-400' : 'text-slate-400'}`} />
                     <span>{item.label}</span>
                   </div>
                 </button>

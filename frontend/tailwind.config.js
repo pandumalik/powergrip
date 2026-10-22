@@ -4,6 +4,9 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      borderColor: {
+        DEFAULT: 'transparent',
+      },
       colors: {
         brand: {
           50: 'rgb(var(--color-brand-50) / <alpha-value>)',

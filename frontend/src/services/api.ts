@@ -49,6 +49,42 @@ class ApiClient {
     return this.useMock;
   }
 
+  getCachedClients(): Client[] {
+    return this.clients;
+  }
+
+  getCachedProjects(): Project[] {
+    return this.projects;
+  }
+
+  getCachedInventories(): InventoryItem[] {
+    return this.inventories;
+  }
+
+  getCachedAccessGrants(): AccessGrant[] {
+    return this.accessGrants;
+  }
+
+  getCachedEmployees(): Employee[] {
+    return this.employees;
+  }
+
+  getCachedDepartments(): Department[] {
+    return this.departments;
+  }
+
+  getCachedAuditLogs(): AccessAuditLog[] {
+    return this.auditLogs;
+  }
+
+  getCachedCloudCredentials(): CloudCredential[] {
+    return this.cloudCredentials;
+  }
+
+  getCachedIndustries(): string[] {
+    return Array.isArray(this.miscData.INDUSTRIES) ? this.miscData.INDUSTRIES : [];
+  }
+
   // ===========================================================================
   // Clients
   // ===========================================================================

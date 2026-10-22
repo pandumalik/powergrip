@@ -17,18 +17,20 @@ import {
 } from 'lucide-react';
 import { NavTab } from '@/components/layout/Sidebar';
 
-export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void }> = ({ setActiveTab }) => {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [inventories, setInventories] = useState<InventoryItem[]>([]);
-  const [grants, setGrants] = useState<AccessGrant[]>([]);
+export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void; activeTab?: NavTab }> = ({ setActiveTab, activeTab }) => {
+  const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
+  const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
+  const [inventories, setInventories] = useState<InventoryItem[]>(() => api.getCachedInventories());
+  const [grants, setGrants] = useState<AccessGrant[]>(() => api.getCachedAccessGrants());
 
   useEffect(() => {
-    api.getClients().then(setClients);
-    api.getProjects().then(setProjects);
-    api.getInventories().then(setInventories);
-    api.getAccessGrants().then(setGrants);
-  }, []);
+    if (activeTab === 'dashboard') {
+      api.getClients().then(setClients);
+      api.getProjects().then(setProjects);
+      api.getInventories().then(setInventories);
+      api.getAccessGrants().then(setGrants);
+    }
+  }, [activeTab]);
 
   const pendingApprovals = grants.filter((g) => g.status === 'PENDING' || g.status === 'ENDORSED');
   const activeGrants = grants.filter((g) => g.status === 'ACTIVE');

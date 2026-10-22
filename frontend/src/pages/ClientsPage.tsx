@@ -23,8 +23,8 @@ import {
 } from 'lucide-react';
 
 export const ClientsPage: React.FC = () => {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [industries, setIndustries] = useState<string[]>([]);
+  const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
+  const [industries, setIndustries] = useState<string[]>(() => api.getCachedIndustries());
   const [search, setSearch] = useState('');
   const [industryFilter, setIndustryFilter] = useState('ALL');
 

@@ -28,13 +28,25 @@ export const App: React.FC = () => {
               <Navbar />
 
               {/* Page View Body */}
-              <main className="p-6 md:p-8 flex-1 max-w-7xl w-full mx-auto animate-in fade-in duration-200">
-                {activeTab === 'dashboard' && <DashboardPage setActiveTab={setActiveTab} />}
-                {activeTab === 'clients' && <ClientsPage />}
-                {activeTab === 'projects' && <ProjectsPage />}
-                {activeTab === 'inventories' && <InventoriesPage />}
-                {activeTab === 'access' && <AccessManagementPage />}
-                {activeTab === 'employees' && <OrgHierarchyPage />}
+              <main className="p-6 md:p-8 flex-1 max-w-7xl w-full mx-auto">
+                <div className={activeTab === 'dashboard' ? 'block' : 'hidden'}>
+                  <DashboardPage setActiveTab={setActiveTab} activeTab={activeTab} />
+                </div>
+                <div className={activeTab === 'clients' ? 'block' : 'hidden'}>
+                  <ClientsPage />
+                </div>
+                <div className={activeTab === 'projects' ? 'block' : 'hidden'}>
+                  <ProjectsPage />
+                </div>
+                <div className={activeTab === 'inventories' ? 'block' : 'hidden'}>
+                  <InventoriesPage />
+                </div>
+                <div className={activeTab === 'access' ? 'block' : 'hidden'}>
+                  <AccessManagementPage />
+                </div>
+                <div className={activeTab === 'employees' ? 'block' : 'hidden'}>
+                  <OrgHierarchyPage />
+                </div>
               </main>
             </div>
           </div>

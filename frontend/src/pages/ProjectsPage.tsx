@@ -21,9 +21,9 @@ import {
 } from 'lucide-react';
 
 export const ProjectsPage: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
+  const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
+  const [employees, setEmployees] = useState<Employee[]>(() => api.getCachedEmployees());
   const [search, setSearch] = useState('');
 
   // Bulk Selection State

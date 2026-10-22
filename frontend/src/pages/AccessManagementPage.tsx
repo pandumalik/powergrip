@@ -24,11 +24,11 @@ import {
 } from 'lucide-react';
 
 export const AccessManagementPage: React.FC = () => {
-  const [grants, setGrants] = useState<AccessGrant[]>([]);
-  const [inventories, setInventories] = useState<InventoryItem[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AccessAuditLog[]>([]);
+  const [grants, setGrants] = useState<AccessGrant[]>(() => api.getCachedAccessGrants());
+  const [inventories, setInventories] = useState<InventoryItem[]>(() => api.getCachedInventories());
+  const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
+  const [employees, setEmployees] = useState<Employee[]>(() => api.getCachedEmployees());
+  const [auditLogs, setAuditLogs] = useState<AccessAuditLog[]>(() => api.getCachedAuditLogs());
 
   const [activeTab, setActiveTab] = useState<'matrix' | 'pending' | 'audit'>('matrix');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -278,10 +278,10 @@ export const AccessManagementPage: React.FC = () => {
             setActiveTab('matrix');
             setSelectedIds([]);
           }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors duration-150 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 flex items-center gap-2 ${
             activeTab === 'matrix'
-              ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
@@ -293,10 +293,10 @@ export const AccessManagementPage: React.FC = () => {
             setActiveTab('pending');
             setSelectedIds([]);
           }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors duration-150 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 flex items-center gap-2 ${
             activeTab === 'pending'
-              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
           }`}
         >
           <ShieldAlert className="w-4 h-4" />
@@ -308,10 +308,10 @@ export const AccessManagementPage: React.FC = () => {
             setActiveTab('audit');
             setSelectedIds([]);
           }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors duration-150 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 flex items-center gap-2 ${
             activeTab === 'audit'
-              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
           }`}
         >
           <History className="w-4 h-4" />

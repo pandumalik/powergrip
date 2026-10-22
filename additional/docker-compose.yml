@@ -127,6 +127,27 @@ services:
     networks:
       - powergrip-net
 
+  # ============================================================================
+  # 7. PowerGrip Rust Backend Web API
+  # ============================================================================
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: powergrip-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4000}:4000"
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-powergrip_user}:${POSTGRES_PASSWORD:-powergrip_secure_password_2026}@postgres:5432/${POSTGRES_DB:-powergrip_db}
+      RUST_LOG: info,powergrip_backend=debug
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - powergrip-net
+
 volumes:
   postgres_data:
     driver: local
