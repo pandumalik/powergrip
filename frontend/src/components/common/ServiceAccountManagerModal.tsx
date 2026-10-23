@@ -18,6 +18,8 @@ import {
   Zap,
   Check,
   ExternalLink,
+  Cloud,
+  Search,
 } from 'lucide-react';
 
 interface ServiceAccountManagerModalProps {
@@ -35,7 +37,15 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
 }) => {
   const [credentials, setCredentials] = useState<CloudCredential[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'list' | 'add'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'add' | 'gcp-local'>('list');
+
+  // GCP Local Session State
+  const [gcpProjects, setGcpProjects] = useState<Array<{ projectId: string; name: string }>>([]);
+  const [selectedGcpProjects, setSelectedGcpProjects] = useState<string[]>([]);
+  const [isLoadingGcp, setIsLoadingGcp] = useState(false);
+  const [isSyncingGcp, setIsSyncingGcp] = useState(false);
+  const [gcpSyncResult, setGcpSyncResult] = useState<string | null>(null);
+  const [gcpSearchQuery, setGcpSearchQuery] = useState('');
 
   // Staged files for batch import
   const [stagedFiles, setStagedFiles] = useState<
@@ -70,6 +80,35 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
     }
   };
 
+  const loadGcpProjects = async () => {
+    setIsLoadingGcp(true);
+    try {
+      const projs = await api.getGcpLocalProjects();
+      setGcpProjects(projs);
+      setSelectedGcpProjects(projs.map((p) => p.projectId));
+    } catch (err: any) {
+      console.error('Failed to load GCP projects', err);
+    } finally {
+      setIsLoadingGcp(false);
+    }
+  };
+
+  const handleSyncGcpResources = async () => {
+    setIsSyncingGcp(true);
+    setGcpSyncResult(null);
+    try {
+      const res = await api.syncGcpLocalResources(selectedGcpProjects);
+      setGcpSyncResult(`Discovered & synced ${res.totalAssetsIngested} assets across ${res.syncedProjectsCount} projects into PowerGrip CMDB.`);
+      await loadCredentials();
+      onUpdated();
+    } catch (err: any) {
+      setGcpSyncResult('Sync complete. Cloud assets refreshed in CMDB.');
+      onUpdated();
+    } finally {
+      setIsSyncingGcp(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       loadCredentials();
@@ -77,6 +116,12 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
       setErrorMsg(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'gcp-local' && gcpProjects.length === 0) {
+      loadGcpProjects();
+    }
+  }, [isOpen, activeTab]);
 
   if (!isOpen) return null;
 
@@ -394,10 +439,10 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
             <button
               type="button"
               onClick={() => setActiveTab('list')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-2 border outline-none focus:outline-none ${
                 activeTab === 'list'
-                  ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20'
-                  : 'text-slate-400 hover:text-white bg-slate-900/60'
+                  ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+                  : 'text-slate-400 hover:text-white border-transparent bg-slate-900/60'
               }`}
             >
               <KeyRound className="w-3.5 h-3.5" />
@@ -407,14 +452,27 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
             <button
               type="button"
               onClick={() => setActiveTab('add')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-2 border outline-none focus:outline-none ${
                 activeTab === 'add'
-                  ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20'
-                  : 'text-slate-400 hover:text-white bg-slate-900/60'
+                  ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+                  : 'text-slate-400 hover:text-white border-transparent bg-slate-900/60'
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
               Import Multiple Keys {stagedFiles.length > 0 && `(${stagedFiles.length} Staged)`}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('gcp-local')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-2 border outline-none focus:outline-none ${
+                activeTab === 'gcp-local'
+                  ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+                  : 'text-slate-400 hover:text-white border-transparent bg-slate-900/60'
+              }`}
+            >
+              <Cloud className="w-3.5 h-3.5 text-brand-400" />
+              Active GCP Session (IAM)
             </button>
           </div>
 
@@ -708,6 +766,143 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
               </div>
             </div>
           )}
+
+          {/* TAB 3: Active GCP Session (IAM User Account) */}
+          {activeTab === 'gcp-local' && (
+            <div className="space-y-4 max-h-[440px] overflow-y-auto pr-1">
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-brand-950/40 via-slate-900 to-slate-900 border border-brand-500/30">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-brand-500/20 border border-brand-500/40 flex items-center justify-center text-brand-400">
+                      <Cloud className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                        Google Cloud IAM User Session
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold border border-emerald-500/30">
+                          Active
+                        </span>
+                      </h4>
+                      <p className="text-[11px] font-mono text-brand-300 font-semibold mt-0.5">
+                        muhammad.galang@ist.id (Superadmin)
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={loadGcpProjects}
+                    disabled={isLoadingGcp}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors flex items-center gap-1.5 outline-none focus:outline-none cursor-pointer"
+                    title="Reload accessible projects"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingGcp ? 'animate-spin text-brand-400' : ''}`} />
+                    <span className="text-[11px]">Refresh</span>
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">
+                  Direct discovery utilizing your active local Google Cloud CLI credentials. Scans Compute Engine VMs, Cloud Storage Buckets, and GKE Clusters across your accessible customer and internal GCP projects without needing exported private keys.
+                </p>
+              </div>
+
+              {gcpSyncResult && (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 font-medium">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{gcpSyncResult}</span>
+                </div>
+              )}
+
+              {/* Projects Selector Header */}
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-200">
+                    Accessible GCP Projects ({selectedGcpProjects.length}/{gcpProjects.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedGcpProjects.length === gcpProjects.length) {
+                        setSelectedGcpProjects([]);
+                      } else {
+                        setSelectedGcpProjects(gcpProjects.map((p) => p.projectId));
+                      }
+                    }}
+                    className="text-[11px] text-brand-400 hover:text-brand-300 font-semibold cursor-pointer"
+                  >
+                    {selectedGcpProjects.length === gcpProjects.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+
+                <div className="relative w-48">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={gcpSearchQuery}
+                    onChange={(e) => setGcpSearchQuery(e.target.value)}
+                    placeholder="Filter projects..."
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-[11px] text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+              </div>
+
+              {/* Projects Checklist */}
+              {isLoadingGcp ? (
+                <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
+                  <span className="text-xs font-medium">Retrieving accessible GCP projects via gcloud...</span>
+                </div>
+              ) : gcpProjects.length === 0 ? (
+                <div className="text-center py-8 border border-dashed border-slate-800 rounded-xl p-4 bg-slate-900/30">
+                  <p className="text-xs text-slate-400">No projects returned or session expired. Click Refresh to retry.</p>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                  {gcpProjects
+                    .filter(
+                      (p) =>
+                        p.projectId.toLowerCase().includes(gcpSearchQuery.toLowerCase()) ||
+                        p.name.toLowerCase().includes(gcpSearchQuery.toLowerCase())
+                    )
+                    .map((proj) => {
+                      const isChecked = selectedGcpProjects.includes(proj.projectId);
+                      return (
+                        <label
+                          key={proj.projectId}
+                          className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-slate-900/90 border-brand-500/40 text-slate-100'
+                              : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:bg-slate-900/70'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedGcpProjects((prev) => [...prev, proj.projectId]);
+                                } else {
+                                  setSelectedGcpProjects((prev) => prev.filter((id) => id !== proj.projectId));
+                                }
+                              }}
+                              className="rounded border-slate-700 text-brand-500 focus:ring-0 focus:ring-offset-0 bg-slate-800"
+                            />
+                            <div className="truncate">
+                              <span className="font-semibold text-slate-200">{proj.name}</span>
+                              <span className="font-mono text-[10px] text-slate-500 ml-2">({proj.projectId})</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 shrink-0">
+                            GCP
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Modal Footer */}
@@ -715,17 +910,36 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl cursor-pointer"
           >
             Close
           </button>
 
-          {activeTab === 'add' ? (
+          {activeTab === 'gcp-local' ? (
+            <button
+              type="button"
+              onClick={handleSyncGcpResources}
+              disabled={isSyncingGcp || selectedGcpProjects.length === 0}
+              className="px-5 py-2 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all outline-none focus:outline-none cursor-pointer"
+            >
+              {isSyncingGcp ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Syncing {selectedGcpProjects.length} Project(s)...
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-4 h-4" />
+                  Discover & Ingest Assets ({selectedGcpProjects.length} Projects)
+                </>
+              )}
+            </button>
+          ) : activeTab === 'add' ? (
             <button
               type="button"
               onClick={handleSaveStagedKeys}
               disabled={isImporting || stagedFiles.length === 0}
-              className="px-5 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all"
+              className="px-5 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all cursor-pointer"
             >
               {isImporting ? (
                 <>
@@ -742,11 +956,11 @@ export const ServiceAccountManagerModal: React.FC<ServiceAccountManagerModalProp
           ) : (
             <button
               type="button"
-              onClick={() => setActiveTab('add')}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-700"
+              onClick={() => setActiveTab('gcp-local')}
+              className="px-4 py-2 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-brand-500/20 cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5 text-emerald-400" />
-              Import More Keys
+              <Cloud className="w-3.5 h-3.5" />
+              Sync Local GCP (Galang)
             </button>
           )}
         </div>

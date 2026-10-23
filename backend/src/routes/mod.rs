@@ -1,4 +1,5 @@
 pub mod access_routes;
+pub mod auth_routes;
 pub mod client_routes;
 pub mod cloud_credential_routes;
 pub mod employee_routes;
@@ -12,6 +13,7 @@ use sqlx::PgPool;
 
 pub fn create_api_router(pool: PgPool) -> Router {
     let api_v1 = Router::new()
+        .merge(auth_routes::router())
         .merge(client_routes::router())
         .merge(project_routes::router())
         .merge(inventory_routes::router())

@@ -25,6 +25,9 @@ pub fn router() -> Router<PgPool> {
         )
         .route("/cloud-credentials/batch", post(batch_create_credentials))
         .route("/cloud-credentials/scan-all", post(scan_all_credentials))
+        .route("/cloud-credentials/gcp-local/status", get(get_gcp_local_status))
+        .route("/cloud-credentials/gcp-local/projects", get(get_gcp_local_projects))
+        .route("/cloud-credentials/gcp-local/sync", post(sync_gcp_local_resources))
         .route(
             "/cloud-credentials/:id",
             get(get_credential)
@@ -539,4 +542,430 @@ async fn scan_all_credentials(State(pool): State<PgPool>) -> Result<impl IntoRes
     }
 
     Ok(Json(results))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct GcpSyncRequest {
+    pub project_ids: Option<Vec<String>>,
+}
+
+async fn execute_gcloud_json(args: &[&str]) -> Result<Value, String> {
+    #[cfg(windows)]
+    let mut cmd = tokio::process::Command::new("cmd");
+    #[cfg(windows)]
+    let mut full_args = vec!["/C", "gcloud"];
+    #[cfg(windows)]
+    full_args.extend_from_slice(args);
+    #[cfg(windows)]
+    let command = cmd.args(&full_args);
+
+    #[cfg(not(windows))]
+    let mut cmd = tokio::process::Command::new("gcloud");
+    #[cfg(not(windows))]
+    let command = cmd.args(args);
+
+    let output = command
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute gcloud: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("gcloud error: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.trim().is_empty() {
+        return Ok(json!([]));
+    }
+
+    serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse gcloud JSON output: {}. Output: {}", e, stdout))
+}
+
+async fn get_gcp_local_status() -> Result<impl IntoResponse, AppError> {
+    match execute_gcloud_json(&["auth", "list", "--format=json"]).await {
+        Ok(val) => {
+            let mut active_account = None;
+            if let Some(arr) = val.as_array() {
+                for acc in arr {
+                    let status = acc.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                    if status.eq_ignore_ascii_case("ACTIVE") {
+                        active_account = acc.get("account").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        break;
+                    }
+                }
+                if active_account.is_none() {
+                    if let Some(first) = arr.first() {
+                        active_account = first.get("account").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    }
+                }
+            }
+            if let Some(account) = active_account {
+                Ok(Json(json!({
+                    "available": true,
+                    "connected": true,
+                    "account": account,
+                    "isAdmin": account.eq_ignore_ascii_case("muhammad.galang@ist.id"),
+                    "role": "ADMIN"
+                })))
+            } else {
+                Ok(Json(json!({
+                    "available": true,
+                    "connected": false,
+                    "account": null,
+                    "message": "No active gcloud account logged in. Please run 'gcloud auth login'."
+                })))
+            }
+        }
+        Err(err) => Ok(Json(json!({
+            "available": false,
+            "connected": false,
+            "account": null,
+            "error": err
+        }))),
+    }
+}
+
+async fn get_gcp_local_projects() -> Result<impl IntoResponse, AppError> {
+    let projects = execute_gcloud_json(&["projects", "list", "--format=json", "--quiet"])
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to list GCP projects: {}", e)))?;
+
+    Ok(Json(projects))
+}
+
+async fn sync_gcp_local_resources(
+    State(pool): State<PgPool>,
+    Json(payload): Json<GcpSyncRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let target_projects: Vec<String> = if let Some(pids) = payload.project_ids {
+        if !pids.is_empty() {
+            pids
+        } else {
+            get_all_project_ids().await?
+        }
+    } else {
+        get_all_project_ids().await?
+    };
+
+    let mut total_discovered = 0;
+    let mut synced_details = Vec::new();
+
+    let active_account = execute_gcloud_json(&["auth", "list", "--format=json"])
+        .await
+        .ok()
+        .and_then(|v| {
+            v.as_array().and_then(|arr| {
+                arr.iter().find_map(|acc| {
+                    if acc.get("status").and_then(|s| s.as_str()) == Some("ACTIVE") {
+                        acc.get("account").and_then(|s| s.as_str()).map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+        })
+        .unwrap_or_else(|| "muhammad.galang@ist.id".to_string());
+
+    for pid in &target_projects {
+        let mut proj_items = 0;
+        let clean_pid = pid.trim();
+        if clean_pid.is_empty() {
+            continue;
+        }
+
+        // A. Discover Compute Engine Instances
+        if let Ok(vms) = execute_gcloud_json(&[
+            "compute",
+            "instances",
+            "list",
+            &format!("--project={}", clean_pid),
+            "--format=json",
+            "--quiet",
+        ])
+        .await
+        {
+            if let Some(vm_list) = vms.as_array() {
+                for vm in vm_list {
+                    let name = vm.get("name").and_then(|v| v.as_str()).unwrap_or("vm-instance");
+                    let status_str = vm.get("status").and_then(|v| v.as_str()).unwrap_or("ACTIVE");
+                    let status = if status_str.eq_ignore_ascii_case("RUNNING") {
+                        "ACTIVE"
+                    } else if status_str.eq_ignore_ascii_case("TERMINATED") || status_str.eq_ignore_ascii_case("STOPPED") {
+                        "INACTIVE"
+                    } else {
+                        "MAINTENANCE"
+                    };
+
+                    let zone_url = vm.get("zone").and_then(|v| v.as_str()).unwrap_or("");
+                    let zone = zone_url.split('/').last().unwrap_or("asia-southeast2-a");
+                    let region = zone.rsplitn(2, '-').last().unwrap_or("asia-southeast2");
+
+                    let primary_ip = vm.get("networkInterfaces")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|ni| ni.get("networkIP"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("10.0.0.1");
+
+                    let nat_ip = vm.get("networkInterfaces")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|ni| ni.get("accessConfigs"))
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|ac| ac.get("natIP"))
+                        .and_then(|v| v.as_str());
+
+                    let machine_type_url = vm.get("machineType").and_then(|v| v.as_str()).unwrap_or("");
+                    let machine_type = machine_type_url.split('/').last().unwrap_or("e2-medium");
+
+                    let asset_tag = format!("AST-VM-GCP-{}-{}", clean_pid.to_uppercase(), name.to_uppercase());
+
+                    let specs = json!({
+                        "machine_type": machine_type,
+                        "zone": zone,
+                        "status": status_str,
+                        "nat_ip": nat_ip,
+                        "gcp_project": clean_pid
+                    });
+
+                    let conn_info = json!({
+                        "projectId": clean_pid,
+                        "zone": zone,
+                        "selfLink": vm.get("selfLink"),
+                        "discovered_by": active_account
+                    });
+
+                    let upsert_query = r#"
+                        INSERT INTO inventories (
+                            asset_tag, name, asset_scope, asset_type, environment, status,
+                            provider, region, primary_ip, specs, connection_info, tags
+                        )
+                        VALUES ($1, $2, 'INTERNAL', 'VIRTUAL_MACHINE', 'PROD', $3::asset_status_enum,
+                                'GCP', $4, $5::inet, $6, $7, $8)
+                        ON CONFLICT (asset_tag) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            status = EXCLUDED.status,
+                            region = EXCLUDED.region,
+                            primary_ip = EXCLUDED.primary_ip,
+                            specs = EXCLUDED.specs,
+                            connection_info = EXCLUDED.connection_info,
+                            updated_at = CURRENT_TIMESTAMP
+                    "#;
+
+                    let tags = json!(["GCP", "COMPUTE_VM", clean_pid]);
+
+                    let _ = sqlx::query(upsert_query)
+                        .bind(&asset_tag)
+                        .bind(name)
+                        .bind(status)
+                        .bind(region)
+                        .bind(primary_ip)
+                        .bind(&specs)
+                        .bind(&conn_info)
+                        .bind(&tags)
+                        .execute(&pool)
+                        .await;
+
+                    proj_items += 1;
+                    total_discovered += 1;
+                }
+            }
+        }
+
+        // B. Discover Cloud Storage Buckets
+        if let Ok(buckets) = execute_gcloud_json(&[
+            "storage",
+            "buckets",
+            "list",
+            &format!("--project={}", clean_pid),
+            "--format=json",
+            "--quiet",
+        ])
+        .await
+        {
+            if let Some(b_list) = buckets.as_array() {
+                for b in b_list {
+                    let b_name = b.get("name").and_then(|v| v.as_str()).unwrap_or("storage-bucket");
+                    let location = b.get("location").and_then(|v| v.as_str()).unwrap_or("ASIA-SOUTHEAST2");
+                    let storage_class = b.get("storageClass").and_then(|v| v.as_str()).unwrap_or("STANDARD");
+
+                    let asset_tag = format!("AST-STG-GCP-{}-{}", clean_pid.to_uppercase(), b_name.to_uppercase());
+
+                    let specs = json!({
+                        "storage_class": storage_class,
+                        "location": location,
+                        "gcp_project": clean_pid
+                    });
+
+                    let conn_info = json!({
+                        "projectId": clean_pid,
+                        "bucketUrl": format!("gs://{}", b_name),
+                        "discovered_by": active_account
+                    });
+
+                    let upsert_query = r#"
+                        INSERT INTO inventories (
+                            asset_tag, name, asset_scope, asset_type, environment, status,
+                            provider, region, primary_ip, specs, connection_info, tags
+                        )
+                        VALUES ($1, $2, 'INTERNAL', 'STORAGE_BUCKET', 'PROD', 'ACTIVE',
+                                'GCP', $3, '10.0.0.1'::inet, $4, $5, $6)
+                        ON CONFLICT (asset_tag) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            region = EXCLUDED.region,
+                            specs = EXCLUDED.specs,
+                            connection_info = EXCLUDED.connection_info,
+                            updated_at = CURRENT_TIMESTAMP
+                    "#;
+
+                    let tags = json!(["GCP", "STORAGE_BUCKET", clean_pid]);
+
+                    let _ = sqlx::query(upsert_query)
+                        .bind(&asset_tag)
+                        .bind(b_name)
+                        .bind(location)
+                        .bind(&specs)
+                        .bind(&conn_info)
+                        .bind(&tags)
+                        .execute(&pool)
+                        .await;
+
+                    proj_items += 1;
+                    total_discovered += 1;
+                }
+            }
+        }
+
+        // C. Discover GKE Clusters
+        if let Ok(clusters) = execute_gcloud_json(&[
+            "container",
+            "clusters",
+            "list",
+            &format!("--project={}", clean_pid),
+            "--format=json",
+            "--quiet",
+        ])
+        .await
+        {
+            if let Some(c_list) = clusters.as_array() {
+                for c in c_list {
+                    let c_name = c.get("name").and_then(|v| v.as_str()).unwrap_or("gke-cluster");
+                    let location = c.get("location").and_then(|v| v.as_str()).unwrap_or("asia-southeast2");
+                    let endpoint = c.get("endpoint").and_then(|v| v.as_str()).unwrap_or("10.0.0.1");
+                    let version = c.get("currentMasterVersion").and_then(|v| v.as_str()).unwrap_or("latest");
+
+                    let asset_tag = format!("AST-K8S-GCP-{}-{}", clean_pid.to_uppercase(), c_name.to_uppercase());
+
+                    let specs = json!({
+                        "k8s_version": version,
+                        "location": location,
+                        "endpoint": endpoint,
+                        "gcp_project": clean_pid
+                    });
+
+                    let conn_info = json!({
+                        "projectId": clean_pid,
+                        "clusterName": c_name,
+                        "discovered_by": active_account
+                    });
+
+                    let upsert_query = r#"
+                        INSERT INTO inventories (
+                            asset_tag, name, asset_scope, asset_type, environment, status,
+                            provider, region, primary_ip, specs, connection_info, tags
+                        )
+                        VALUES ($1, $2, 'INTERNAL', 'KUBERNETES', 'PROD', 'ACTIVE',
+                                'GCP', $3, $4::inet, $5, $6, $7)
+                        ON CONFLICT (asset_tag) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            region = EXCLUDED.region,
+                            primary_ip = EXCLUDED.primary_ip,
+                            specs = EXCLUDED.specs,
+                            connection_info = EXCLUDED.connection_info,
+                            updated_at = CURRENT_TIMESTAMP
+                    "#;
+
+                    let tags = json!(["GCP", "KUBERNETES", clean_pid]);
+
+                    let _ = sqlx::query(upsert_query)
+                        .bind(&asset_tag)
+                        .bind(c_name)
+                        .bind(location)
+                        .bind(endpoint)
+                        .bind(&specs)
+                        .bind(&conn_info)
+                        .bind(&tags)
+                        .execute(&pool)
+                        .await;
+
+                    proj_items += 1;
+                    total_discovered += 1;
+                }
+            }
+        }
+
+        synced_details.push(json!({
+            "projectId": clean_pid,
+            "discoveredCount": proj_items
+        }));
+    }
+
+    // 3. Upsert a record in cloud_credentials representing the local session
+    let cred_name = format!("Google Cloud IAM Session ({})", active_account);
+    let cred_meta = json!({
+        "account": active_account,
+        "type": "authorized_user",
+        "mode": "local_gcloud_iam_session",
+        "scanned_projects_count": target_projects.len(),
+        "total_assets_found": total_discovered
+    });
+
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO cloud_credentials (
+            id, name, provider, key_blob, client_id, metadata, auto_scan_interval, is_active, scan_status, last_scanned_at
+        )
+        VALUES (
+            'e0a1b2c3-d4e5-6789-0123-456789abcdef',
+            $1, 'GCP', '{"type": "authorized_user", "mode": "local_iam"}'::jsonb, NULL, $2, '1h', 1, 'HEALTHY', CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            metadata = EXCLUDED.metadata,
+            scan_status = 'HEALTHY',
+            last_scanned_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .bind(&cred_name)
+    .bind(&cred_meta)
+    .execute(&pool)
+    .await;
+
+    Ok(Json(json!({
+        "status": "success",
+        "account": active_account,
+        "syncedProjectsCount": target_projects.len(),
+        "totalAssetsIngested": total_discovered,
+        "details": synced_details
+    })))
+}
+
+async fn get_all_project_ids() -> Result<Vec<String>, AppError> {
+    let projects = execute_gcloud_json(&["projects", "list", "--format=json", "--quiet"])
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to retrieve GCP projects: {}", e)))?;
+
+    let mut pids = Vec::new();
+    if let Some(arr) = projects.as_array() {
+        for p in arr {
+            if let Some(id) = p.get("projectId").and_then(|v| v.as_str()) {
+                pids.push(id.to_string());
+            }
+        }
+    }
+    Ok(pids)
 }

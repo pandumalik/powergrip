@@ -417,3 +417,8 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO contracts (id, client_id, contract_number, title, contract_type, start_date, end_date, sla_level, status, value, currency) VALUES
 ('c1234567-8901-2345-6789-012345678901', 'a9876543-b123-4567-8901-cdef01234567', 'CTR-2026-GCP-009', 'Managed Cloud Infrastructure & 24/7 SRE', 'MANAGED_SERVICE', '2026-01-01', '2026-12-31', '99.99% Critical SLA', 'ACTIVE', 180000.00, 'USD')
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO employees (id, department_id, employee_number, first_name, last_name, email, job_title, employment_status, join_date, metadata) VALUES
+('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'd1111111-1111-1111-1111-111111111111', 'EMP-ADM-001', 'Muhammad', 'Galang', 'muhammad.galang@ist.id', 'Principal Cloud Architect & PowerGrip Superadmin', 'ACTIVE', '2024-01-01', '{"role": "ADMIN", "is_superadmin": true, "gcp_iam_connected": true, "gcp_email": "muhammad.galang@ist.id"}'::jsonb)
+ON CONFLICT (email) DO NOTHING;
+
