@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
 import { AccessGrant, InventoryItem, Project, AccessAuditLog, Employee } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 
 export const AccessManagementPage: React.FC = () => {
+  const { currentUser, permissions } = useAuth();
   const [grants, setGrants] = useState<AccessGrant[]>(() => api.getCachedAccessGrants());
   const [inventories, setInventories] = useState<InventoryItem[]>(() => api.getCachedInventories());
   const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
@@ -45,7 +47,12 @@ export const AccessManagementPage: React.FC = () => {
   const [isRevoking, setIsRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
-  // Delete Target Modal State
+  // Cancel Request Modal State (for Employees withdrawing their own pending request)
+  const [cancelTarget, setCancelTarget] = useState<AccessGrant | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  // Delete Target Modal State (Admin Only)
   const [deleteTarget, setDeleteTarget] = useState<AccessGrant | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -60,7 +67,10 @@ export const AccessManagementPage: React.FC = () => {
   const [requestError, setRequestError] = useState<string | null>(null);
 
   const resetRequestForm = () => {
-    setEmployeeId(employees[0]?.id || '');
+    const myEmp = employees.find(
+      (e) => e.email.toLowerCase() === (currentUser?.email || '').toLowerCase()
+    );
+    setEmployeeId(myEmp?.id || (employees.length > 0 ? employees[0].id : ''));
     setInventoryId(inventories[0]?.id || '');
     setAccessLevel('READ_WRITE');
     setDurationHours(4);
@@ -83,7 +93,10 @@ export const AccessManagementPage: React.FC = () => {
     setAuditLogs(logs);
 
     if (emps.length > 0 && !employeeId) {
-      setEmployeeId(emps[0].id);
+      const myEmp = emps.find(
+        (e) => e.email.toLowerCase() === (currentUser?.email || '').toLowerCase()
+      );
+      setEmployeeId(myEmp?.id || emps[0].id);
     }
     if (invs.length > 0 && !inventoryId) {
       setInventoryId(invs[0].id);
@@ -158,6 +171,12 @@ export const AccessManagementPage: React.FC = () => {
     setRevokeError(null);
   };
 
+  const handleCancelRequestClick = (grant: AccessGrant, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCancelTarget(grant);
+    setCancelError(null);
+  };
+
   const handleDeleteClick = (grant: AccessGrant, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setDeleteTarget(grant);
@@ -182,6 +201,27 @@ export const AccessManagementPage: React.FC = () => {
     } catch (err: any) {
       setIsRevoking(false);
       setRevokeError(err.message || 'Failed to revoke access');
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget) return;
+    setIsCancelling(true);
+    setCancelError(null);
+    try {
+      const cancelled = await api.cancelAccessRequest(cancelTarget.id, 'Withdrawn by requester');
+      setGrants((prev) =>
+        prev.map((g) => (g.id === cancelTarget.id ? { ...g, ...cancelled } : g)),
+      );
+      if (editingGrant?.id === cancelTarget.id) {
+        setEditingGrant(null);
+      }
+      setIsCancelling(false);
+      setCancelTarget(null);
+      await loadData();
+    } catch (err: any) {
+      setIsCancelling(false);
+      setCancelError(err.message || 'Failed to cancel access request');
     }
   };
 
@@ -236,8 +276,38 @@ export const AccessManagementPage: React.FC = () => {
     }
   };
 
-  const pendingGrants = grants.filter((g) => g.status === 'PENDING' || g.status === 'ENDORSED');
-  const activeGrants = grants.filter((g) => g.status === 'ACTIVE');
+  // Resolve current logged-in employee record
+  const currentEmployee = employees.find(
+    (e) => e.email.toLowerCase() === (currentUser?.email || '').toLowerCase()
+  );
+
+  // Check if a grant belongs to the currently logged in user
+  const isOwnGrant = (grant: AccessGrant) => {
+    if (!currentUser) return false;
+    if (grant.employee?.email && grant.employee.email.toLowerCase() === currentUser.email.toLowerCase()) {
+      return true;
+    }
+    if (currentEmployee && grant.employeeId === currentEmployee.id) {
+      return true;
+    }
+    if (currentUser.id && grant.employeeId === currentUser.id) {
+      return true;
+    }
+    return false;
+  };
+
+  // Employees can ONLY view their own requests and active grants
+  const displayGrants = permissions.canViewAllAccessRequests
+    ? grants
+    : grants.filter(isOwnGrant);
+
+  const pendingGrants = displayGrants.filter((g) => g.status === 'PENDING' || g.status === 'ENDORSED');
+  const activeGrants = displayGrants.filter((g) => g.status === 'ACTIVE');
+
+  // Employees only see their own audit events
+  const displayAuditLogs = permissions.canViewAllAccessRequests
+    ? auditLogs
+    : auditLogs.filter((log) => currentEmployee && log.employeeId === currentEmployee.id);
 
   const currentTabItems = activeTab === 'matrix' ? activeGrants : activeTab === 'pending' ? pendingGrants : [];
 
@@ -248,19 +318,28 @@ export const AccessManagementPage: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <KeyRound className="w-5 h-5 text-amber-400" />
-            Access Management
+            {permissions.role === 'Employee' ? 'My Privileged Access' : 'Access Management'}
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {grants.length} Total
+              {displayGrants.length} Total
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Zero-trust privileged access governance, temporary time-bounded grants, and session audit logs. Click any item to inspect or edit.
+            {permissions.role === 'Employee'
+              ? 'Zero-trust privileged access governance. Track your submitted access requests and active session grants.'
+              : 'Zero-trust privileged access governance, temporary time-bounded grants, and session audit logs. Click any item to inspect or review.'}
           </p>
         </div>
 
         <button
           onClick={() => {
-            if (employees.length > 0 && !employeeId) setEmployeeId(employees[0].id);
+            const myEmp = employees.find(
+              (e) => e.email.toLowerCase() === (currentUser?.email || '').toLowerCase()
+            );
+            if (permissions.role === 'Employee' && myEmp) {
+              setEmployeeId(myEmp.id);
+            } else if (employees.length > 0 && !employeeId) {
+              setEmployeeId(employees[0].id);
+            }
             if (inventories.length > 0 && !inventoryId) setInventoryId(inventories[0].id);
             setIsModalOpen(true);
           }}
@@ -285,7 +364,7 @@ export const AccessManagementPage: React.FC = () => {
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
-          Active Matrix ({activeGrants.length})
+          {permissions.role === 'Employee' ? 'My Active Access' : 'Active Matrix'} ({activeGrants.length})
         </button>
 
         <button
@@ -300,7 +379,7 @@ export const AccessManagementPage: React.FC = () => {
           }`}
         >
           <ShieldAlert className="w-4 h-4" />
-          Pending Approvals ({pendingGrants.length})
+          {permissions.role === 'Employee' ? 'My Pending Requests' : 'Pending Approvals'} ({pendingGrants.length})
         </button>
 
         <button
@@ -315,12 +394,12 @@ export const AccessManagementPage: React.FC = () => {
           }`}
         >
           <History className="w-4 h-4" />
-          Audit Logs ({auditLogs.length})
+          {permissions.role === 'Employee' ? 'My Activity Logs' : 'Audit Logs'} ({displayAuditLogs.length})
         </button>
       </div>
 
-      {/* Bulk Action Toolbar for Matrix and Pending Tabs */}
-      {activeTab !== 'audit' && currentTabItems.length > 0 && (
+      {/* Bulk Action Toolbar for Matrix and Pending Tabs (Admin Only) */}
+      {permissions.canBulkManageGrants && activeTab !== 'audit' && currentTabItems.length > 0 && (
         <BulkActionToolbar
           selectedCount={selectedIds.length}
           totalCount={currentTabItems.length}
@@ -338,27 +417,31 @@ export const AccessManagementPage: React.FC = () => {
         <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
           {activeGrants.length === 0 ? (
             <div className="p-12 text-center text-slate-500 text-xs">
-              No active access grants found. Click "Request Access" to issue a grant or review pending requests.
+              {permissions.role === 'Employee'
+                ? 'You have no active privileged access grants. Click "Request Access" to request temporary access.'
+                : 'No active access grants found. Click "Request Access" to issue a grant or review pending requests.'}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="w-10 px-4 py-3.5 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.length === activeGrants.length && activeGrants.length > 0}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedIds(activeGrants.map((g) => g.id));
-                          } else {
-                            setSelectedIds([]);
-                          }
-                        }}
-                        className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                      />
-                    </th>
+                    {permissions.canBulkManageGrants && (
+                      <th className="w-10 px-4 py-3.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.length === activeGrants.length && activeGrants.length > 0}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIds(activeGrants.map((g) => g.id));
+                            } else {
+                              setSelectedIds([]);
+                            }
+                          }}
+                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                        />
+                      </th>
+                    )}
                     <th className="px-4 py-3.5">Authorized Employee</th>
                     <th className="px-4 py-3.5">Target Inventory Asset</th>
                     <th className="px-4 py-3.5">Access Level</th>
@@ -369,6 +452,11 @@ export const AccessManagementPage: React.FC = () => {
                 <tbody className="divide-y divide-slate-800/60 text-slate-300">
                   {activeGrants.map((grant) => {
                     const isSelected = selectedIds.includes(grant.id);
+                    const isMyGrant = isOwnGrant(grant);
+                    const canRevokeThis =
+                      permissions.canRevokeAnyGrant ||
+                      (permissions.canRevokeOwnGrant && isMyGrant);
+
                     return (
                       <tr
                         key={grant.id}
@@ -377,27 +465,31 @@ export const AccessManagementPage: React.FC = () => {
                           isSelected ? 'bg-brand-500/5' : ''
                         }`}
                       >
-                        <td
-                          className="w-10 px-4 py-4 text-center"
-                          onClick={(e) => handleToggleSelect(grant.id, e)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {}}
-                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                          />
-                        </td>
+                        {permissions.canBulkManageGrants && (
+                          <td
+                            className="w-10 px-4 py-4 text-center"
+                            onClick={(e) => handleToggleSelect(grant.id, e)}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                            />
+                          </td>
+                        )}
 
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs text-brand-400">
-                              {grant.employee?.firstName?.[0] || 'E'}
+                              {(grant.employee as any)?.firstName?.[0] || (grant.employee as any)?.first_name?.[0] || 'E'}
                             </div>
                             <div>
                               <div className="flex items-center gap-1.5">
                                 <p className="font-bold text-white text-xs group-hover:text-brand-400 transition-colors">
-                                  {grant.employee ? `${grant.employee.firstName} ${grant.employee.lastName}` : 'System / Service Account'}
+                                  {grant.employee
+                                    ? `${(grant.employee as any).firstName || (grant.employee as any).first_name || ''} ${(grant.employee as any).lastName || (grant.employee as any).last_name || ''}`.trim() || grant.employee.email
+                                    : 'System / Service Account'}
                                 </p>
                                 <span className="text-[10px] text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity font-semibold">
                                   <Edit3 className="w-2.5 h-2.5 inline" />
@@ -434,22 +526,28 @@ export const AccessManagementPage: React.FC = () => {
 
                         <td className="px-4 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => handleRevokeClick(grant, e)}
-                              className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-colors"
-                              title="Revoke active privileges"
-                            >
-                              Revoke
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => handleDeleteClick(grant, e)}
-                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs transition-colors"
-                              title="Delete grant record"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {canRevokeThis ? (
+                              <button
+                                type="button"
+                                onClick={(e) => handleRevokeClick(grant, e)}
+                                className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-colors cursor-pointer"
+                                title="Revoke active privileges"
+                              >
+                                Revoke
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 font-mono">Active</span>
+                            )}
+                            {permissions.canBulkManageGrants && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteClick(grant, e)}
+                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs transition-colors cursor-pointer"
+                                title="Delete grant record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -468,7 +566,9 @@ export const AccessManagementPage: React.FC = () => {
           {pendingGrants.length === 0 ? (
             <div className="glass-panel rounded-2xl p-12 text-center text-slate-500 text-xs flex flex-col items-center">
               <CheckCircle className="w-10 h-10 text-emerald-500/50 mb-2" />
-              No pending access requests requiring approval.
+              {permissions.role === 'Employee'
+                ? 'You have no pending access requests.'
+                : 'No pending access requests requiring approval.'}
             </div>
           ) : (
             pendingGrants.map((grant) => {
@@ -485,17 +585,19 @@ export const AccessManagementPage: React.FC = () => {
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="flex items-start gap-3">
-                      <div
-                        className="pt-1"
-                        onClick={(e) => handleToggleSelect(grant.id, e)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-amber-500/30 cursor-pointer"
-                        />
-                      </div>
+                      {permissions.canBulkManageGrants && (
+                        <div
+                          className="pt-1"
+                          onClick={(e) => handleToggleSelect(grant.id, e)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-amber-500/30 cursor-pointer"
+                          />
+                        </div>
+                      )}
 
                       <div>
                         <div className="flex items-center gap-2">
@@ -504,7 +606,7 @@ export const AccessManagementPage: React.FC = () => {
                           </span>
                           <StatusBadge status={grant.accessLevel} />
                           <span className="text-[10px] text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity font-semibold flex items-center gap-1">
-                            <Edit3 className="w-3 h-3" /> Click to Review & Edit
+                            <Edit3 className="w-3 h-3" /> {permissions.role === 'Employee' ? 'Click to View Details' : 'Click to Review & Edit'}
                           </span>
                         </div>
 
@@ -515,7 +617,9 @@ export const AccessManagementPage: React.FC = () => {
                         <p className="text-xs text-slate-400 mt-1">
                           Submitted by:{' '}
                           <span className="text-slate-200 font-semibold">
-                            {grant.employee ? `${grant.employee.firstName} ${grant.employee.lastName} (${grant.employee.jobTitle})` : 'Employee'}
+                            {grant.employee
+                              ? `${(grant.employee as any).firstName || (grant.employee as any).first_name || ''} ${(grant.employee as any).lastName || (grant.employee as any).last_name || ''}`.trim() || grant.employee.email
+                              : 'Employee'}
                           </span>
                         </p>
 
@@ -526,37 +630,98 @@ export const AccessManagementPage: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Role-Based Approval Actions */}
                     <div className="flex sm:flex-col gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleApprove(grant.id);
-                        }}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleReject(grant.id);
-                        }}
-                        className="px-4 py-2 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-semibold border border-slate-700 hover:border-rose-700/50 flex items-center gap-1.5 transition-all"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        Decline
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteClick(grant, e)}
-                        className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold border border-rose-500/30 flex items-center gap-1.5 transition-all"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Delete
-                      </button>
+                      {permissions.role === 'Employee' ? (
+                        <div className="flex sm:flex-col items-end gap-2">
+                          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-semibold">
+                            <Clock className="w-4 h-4 text-purple-400" />
+                            <span>Pending Supervisor Review</span>
+                          </div>
+                          {permissions.canCancelOwnRequest && isOwnGrant(grant) && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCancelRequestClick(grant, e)}
+                              className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded-xl text-xs font-semibold border border-rose-500/30 flex items-center gap-1.5 transition-all cursor-pointer"
+                              title="Cancel your pending access request"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              Cancel Request
+                            </button>
+                          )}
+                        </div>
+                      ) : permissions.role === 'Manager' && (grant.accessLevel === 'ROOT_SUPERADMIN' || grant.accessLevel === 'ADMIN') ? (
+                        <div className="flex sm:flex-col gap-2">
+                          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Requires Admin Escalation</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReject(grant.id);
+                            }}
+                            className="px-3 py-2 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-semibold border border-slate-700 hover:border-rose-700/50 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Decline
+                          </button>
+                        </div>
+                      ) : isOwnGrant(grant) ? (
+                        <div className="flex sm:flex-col items-end gap-2">
+                          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Self Request (Requires Peer Review)</span>
+                          </div>
+                          {permissions.canCancelOwnRequest && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCancelRequestClick(grant, e)}
+                              className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded-xl text-xs font-semibold border border-rose-500/30 flex items-center gap-1.5 transition-all cursor-pointer"
+                              title="Cancel your pending access request"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              Cancel Request
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleApprove(grant.id);
+                            }}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReject(grant.id);
+                            }}
+                            className="px-4 py-2 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-semibold border border-slate-700 hover:border-rose-700/50 flex items-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            Decline
+                          </button>
+                          {permissions.canBulkManageGrants && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteClick(grant, e)}
+                              className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold border border-rose-500/30 flex items-center gap-1.5 transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete
+                            </button>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -569,9 +734,11 @@ export const AccessManagementPage: React.FC = () => {
       {/* Tab Content 3: Audit Logs */}
       {activeTab === 'audit' && (
         <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
-          {auditLogs.length === 0 ? (
+          {displayAuditLogs.length === 0 ? (
             <div className="p-12 text-center text-slate-500 text-xs">
-              No audit logs captured yet. Privileged events and elevation requests will be recorded here.
+              {permissions.role === 'Employee'
+                ? 'No personal privileged session logs captured yet.'
+                : 'No audit logs captured yet. Privileged events and elevation requests will be recorded here.'}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -585,7 +752,7 @@ export const AccessManagementPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-slate-300 font-mono">
-                  {auditLogs.map((log) => (
+                  {displayAuditLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-900/40">
                       <td className="px-5 py-3.5 text-slate-400">{log.createdAt}</td>
                       <td className="px-4 py-3.5 font-bold text-emerald-400">{log.action}</td>
@@ -600,14 +767,14 @@ export const AccessManagementPage: React.FC = () => {
         </div>
       )}
 
-      {/* Edit Access Grant Modal */}
+      {/* Edit / Inspect Access Grant Modal */}
       {editingGrant && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
           <div className="glass-panel w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <Edit3 className="w-5 h-5 text-amber-400" />
-                Review & Edit Access Grant
+                {permissions.role === 'Employee' ? 'Access Request Details' : 'Review & Edit Access Grant'}
               </h3>
               <button
                 onClick={() => setEditingGrant(null)}
@@ -617,109 +784,190 @@ export const AccessManagementPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleUpdate} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Target Asset</label>
-                <input
-                  type="text"
-                  disabled
-                  value={`${editingGrant.inventory?.name || 'Unknown'} (${editingGrant.inventory?.assetTag || 'N/A'})`}
-                  className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 cursor-not-allowed"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Staff Member</label>
-                <input
-                  type="text"
-                  disabled
-                  value={editingGrant.employee ? `${editingGrant.employee.firstName} ${editingGrant.employee.lastName} (${editingGrant.employee.email})` : 'System Service Account'}
-                  className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 cursor-not-allowed"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+            {permissions.role === 'Employee' ? (
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Grant Status</label>
-                  <select
-                    value={editingGrant.status}
-                    onChange={(e) => setEditingGrant({ ...editingGrant, status: e.target.value as any })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="ACTIVE">ACTIVE</option>
-                    <option value="PENDING">PENDING</option>
-                    <option value="ENDORSED">ENDORSED</option>
-                    <option value="REJECTED">REJECTED</option>
-                    <option value="REVOKED">REVOKED</option>
-                    <option value="EXPIRED">EXPIRED</option>
-                  </select>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Target Asset</label>
+                  <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
+                    {editingGrant.inventory?.name || 'Unknown'} ({editingGrant.inventory?.assetTag || 'N/A'})
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Access Level</label>
-                  <select
-                    value={editingGrant.accessLevel}
-                    onChange={(e) => setEditingGrant({ ...editingGrant, accessLevel: e.target.value as any })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="READ_ONLY">Read Only</option>
-                    <option value="OPERATOR">Operator</option>
-                    <option value="READ_WRITE">Read Write</option>
-                    <option value="ADMIN">Administrator</option>
-                    <option value="ROOT_SUPERADMIN">Root / SuperAdmin</option>
-                  </select>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Requester</label>
+                  <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
+                    {editingGrant.employee
+                      ? `${(editingGrant.employee as any).firstName || (editingGrant.employee as any).first_name || ''} ${(editingGrant.employee as any).lastName || (editingGrant.employee as any).last_name || ''}`.trim() || editingGrant.employee.email
+                      : (currentUser?.name || 'Self')}
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Justification</label>
-                <textarea
-                  rows={2}
-                  value={editingGrant.justification}
-                  onChange={(e) => setEditingGrant({ ...editingGrant, justification: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                />
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Current Status</label>
+                    <div className="pt-1">
+                      <StatusBadge status={editingGrant.status} />
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Review Notes / Reason</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Authorized by Operations Lead"
-                  value={editingGrant.reviewNotes || ''}
-                  onChange={(e) => setEditingGrant({ ...editingGrant, reviewNotes: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Requested Access Level</label>
+                    <div className="pt-1">
+                      <StatusBadge status={editingGrant.accessLevel} />
+                    </div>
+                  </div>
+                </div>
 
-              <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => handleDeleteClick(editingGrant)}
-                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Grant
-                </button>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Business Justification</label>
+                  <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200">
+                    "{editingGrant.justification || 'No justification provided'}"
+                  </div>
+                </div>
 
-                <div className="flex items-center gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Supervisor Notes / Review Reason</label>
+                  <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300">
+                    {editingGrant.reviewNotes || 'Pending review by supervisor / operational lead.'}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                  {permissions.canCancelOwnRequest && isOwnGrant(editingGrant) && (editingGrant.status === 'PENDING' || editingGrant.status === 'ENDORSED') ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCancelRequestClick(editingGrant)}
+                      className="px-3.5 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      Cancel Request
+                    </button>
+                  ) : (
+                    <div />
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingGrant(null)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+                    className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    Save Changes
+                    Close
                   </button>
                 </div>
               </div>
-            </form>
+            ) : (
+              <form onSubmit={handleUpdate} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Target Asset</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={`${editingGrant.inventory?.name || 'Unknown'} (${editingGrant.inventory?.assetTag || 'N/A'})`}
+                    className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Staff Member</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={
+                      editingGrant.employee
+                        ? `${(editingGrant.employee as any).firstName || (editingGrant.employee as any).first_name || ''} ${(editingGrant.employee as any).lastName || (editingGrant.employee as any).last_name || ''}`.trim() || editingGrant.employee.email
+                        : 'System Service Account'
+                    }
+                    className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Grant Status</label>
+                    <select
+                      value={editingGrant.status}
+                      onChange={(e) => setEditingGrant({ ...editingGrant, status: e.target.value as any })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="ACTIVE">ACTIVE</option>
+                      <option value="PENDING">PENDING</option>
+                      <option value="ENDORSED">ENDORSED</option>
+                      <option value="REJECTED">REJECTED</option>
+                      <option value="REVOKED">REVOKED</option>
+                      <option value="CANCELLED">CANCELLED</option>
+                      <option value="EXPIRED">EXPIRED</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Access Level</label>
+                    <select
+                      value={editingGrant.accessLevel}
+                      onChange={(e) => setEditingGrant({ ...editingGrant, accessLevel: e.target.value as any })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="READ_ONLY">Read Only</option>
+                      <option value="OPERATOR">Operator</option>
+                      <option value="READ_WRITE">Read Write</option>
+                      <option value="ADMIN">Administrator</option>
+                      <option value="ROOT_SUPERADMIN">Root / SuperAdmin</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Justification</label>
+                  <textarea
+                    rows={2}
+                    value={editingGrant.justification}
+                    onChange={(e) => setEditingGrant({ ...editingGrant, justification: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Review Notes / Reason</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Authorized by Operations Lead"
+                    value={editingGrant.reviewNotes || ''}
+                    onChange={(e) => setEditingGrant({ ...editingGrant, reviewNotes: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                  {permissions.canDeleteGrant ? (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteClick(editingGrant)}
+                      className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete Grant
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingGrant(null)}
+                      className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -758,20 +1006,29 @@ export const AccessManagementPage: React.FC = () => {
                   <User className="w-3.5 h-3.5 text-brand-400" />
                   Staff Member / Requester
                 </label>
-                <select
-                  value={employeeId}
-                  onChange={(e) => setEmployeeId(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-                >
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.firstName} {emp.lastName} — {emp.jobTitle} ({emp.department?.name || 'Engineering'})
-                    </option>
-                  ))}
-                  {employees.length === 0 && (
-                    <option value="">No employees found in directory</option>
-                  )}
-                </select>
+                {permissions.role === 'Employee' ? (
+                  <div className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 flex items-center justify-between">
+                    <span className="font-semibold">{currentUser?.name} ({currentUser?.email})</span>
+                    <span className="text-[10px] font-mono text-purple-400 px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">
+                      Standard Engineer (Level 3)
+                    </span>
+                  </div>
+                ) : (
+                  <select
+                    value={employeeId}
+                    onChange={(e) => setEmployeeId(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
+                  >
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.firstName} {emp.lastName} — {emp.jobTitle} ({emp.department?.name || 'Engineering'})
+                      </option>
+                    ))}
+                    {employees.length === 0 && (
+                      <option value="">No employees found in directory</option>
+                    )}
+                  </select>
+                )}
               </div>
 
               {/* Target Inventory Asset */}
@@ -867,6 +1124,37 @@ export const AccessManagementPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Cancel Request Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!cancelTarget}
+        onClose={() => {
+          if (!isCancelling) {
+            setCancelTarget(null);
+            setCancelError(null);
+          }
+        }}
+        onConfirm={handleConfirmCancel}
+        title="Cancel Access Request"
+        message="Are you sure you want to withdraw and cancel this pending access request? Supervisors will no longer process this request."
+        itemName={cancelTarget?.inventory?.name}
+        itemTag={cancelTarget?.inventory?.assetTag}
+        itemDetails={
+          cancelTarget
+            ? [
+                { label: 'Access Level', value: cancelTarget.accessLevel },
+                { label: 'Grant Type', value: cancelTarget.grantType },
+                { label: 'Justification', value: cancelTarget.justification },
+                { label: 'Submitted At', value: new Date(cancelTarget.requestedStartTime).toLocaleString() },
+              ]
+            : []
+        }
+        confirmLabel="Cancel Request"
+        cancelLabel="Keep Request"
+        isLoading={isCancelling}
+        errorMessage={cancelError}
+        variant="danger"
+      />
 
       {/* Revocation Confirmation Modal */}
       <ConfirmationModal

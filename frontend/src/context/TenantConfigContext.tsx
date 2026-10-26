@@ -146,7 +146,7 @@ function generateBrandShades(primaryHex: string): Record<string, string> {
 
 export const defaultTenantConfig: TenantConfig = {
   appName: 'PowerGrip',
-  tagline: 'Enterprise MSP & PAM Asset Matrix',
+  tagline: 'Privileged Access & Governance',
   version: '2.0.0',
   company: {
     name: 'PowerGrip Technologies Inc.',

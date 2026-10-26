@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
-import { Client, Project, InventoryItem, AccessGrant } from '@/types';
+import { Client, Project, InventoryItem, AccessGrant, Employee } from '@/types';
 import { MetricCard } from '@/components/common/MetricCard';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { useAuth } from '@/context/AuthContext';
 import {
   Building2,
   FolderGit2,
@@ -14,14 +15,17 @@ import {
   CheckCircle2,
   ExternalLink,
   Edit3,
+  Lock,
 } from 'lucide-react';
 import { NavTab } from '@/components/layout/Sidebar';
 
 export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void; activeTab?: NavTab }> = ({ setActiveTab, activeTab }) => {
+  const { currentUser, permissions } = useAuth();
   const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
   const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
   const [inventories, setInventories] = useState<InventoryItem[]>(() => api.getCachedInventories());
   const [grants, setGrants] = useState<AccessGrant[]>(() => api.getCachedAccessGrants());
+  const [employees, setEmployees] = useState<Employee[]>(() => api.getCachedEmployees());
 
   useEffect(() => {
     if (activeTab === 'dashboard') {
@@ -29,11 +33,45 @@ export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void; active
       api.getProjects().then(setProjects);
       api.getInventories().then(setInventories);
       api.getAccessGrants().then(setGrants);
+      api.getEmployees().then(setEmployees);
     }
   }, [activeTab]);
 
-  const pendingApprovals = grants.filter((g) => g.status === 'PENDING' || g.status === 'ENDORSED');
-  const activeGrants = grants.filter((g) => g.status === 'ACTIVE');
+  const currentEmployee = employees.find(
+    (e) => e.email.toLowerCase() === (currentUser?.email || '').toLowerCase()
+  );
+
+  const isOwnGrant = (grant: AccessGrant) => {
+    if (!currentUser) return false;
+    if (grant.employee?.email && grant.employee.email.toLowerCase() === currentUser.email.toLowerCase()) {
+      return true;
+    }
+    if (currentEmployee && grant.employeeId === currentEmployee.id) {
+      return true;
+    }
+    if (currentUser.id && grant.employeeId === currentUser.id) {
+      return true;
+    }
+    return false;
+  };
+
+  // Employees only see their own pending requests; Admins & Managers see all enterprise requests
+  const pendingApprovals = grants.filter((g) => {
+    if (g.status !== 'PENDING' && g.status !== 'ENDORSED') return false;
+    if (permissions.role === 'Employee') {
+      return isOwnGrant(g);
+    }
+    return true;
+  });
+
+  const activeGrants = grants.filter((g) => {
+    if (g.status !== 'ACTIVE') return false;
+    if (permissions.role === 'Employee') {
+      return isOwnGrant(g);
+    }
+    return true;
+  });
+
   const clientAssets = inventories.filter((i) => i.assetScope === 'CLIENT');
   const internalAssets = inventories.filter((i) => i.assetScope === 'INTERNAL');
 
@@ -97,12 +135,22 @@ export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void; active
 
         <div onClick={() => setActiveTab('access')} className="cursor-pointer group">
           <MetricCard
-            title="Pending Access"
+            title={permissions.role === 'Employee' ? 'My Pending Access' : 'Pending Access'}
             value={pendingApprovals.length}
-            subtitle="Awaiting lead endorsement (Click to view)"
+            subtitle={
+              permissions.role === 'Employee'
+                ? 'Awaiting supervisor endorsement (Click to view)'
+                : 'Awaiting lead endorsement (Click to view)'
+            }
             icon={KeyRound}
             color="amber"
-            trend={pendingApprovals.length > 0 ? 'Requires immediate action' : 'Queue clear'}
+            trend={
+              pendingApprovals.length > 0
+                ? permissions.role === 'Employee'
+                  ? 'Under supervisor review'
+                  : 'Requires immediate action'
+                : 'Queue clear'
+            }
             trendType={pendingApprovals.length > 0 ? 'warning' : 'positive'}
           />
         </div>
@@ -110,13 +158,15 @@ export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void; active
 
       {/* Two Column Grid: Pending Approvals Queue & Active Access Matrix */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pending Approvals */}
+        {/* Pending Approvals / My Requests */}
         <div className="glass-panel rounded-2xl p-5 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-amber-400" />
-                <h3 className="text-sm font-bold text-white">Pending Access Approvals</h3>
+                <h3 className="text-sm font-bold text-white">
+                  {permissions.role === 'Employee' ? 'My Pending Access Requests' : 'Pending Access Approvals'}
+                </h3>
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
                 {pendingApprovals.length} Requests
@@ -127,59 +177,91 @@ export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void; active
               {pendingApprovals.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 text-xs flex flex-col items-center">
                   <CheckCircle2 className="w-8 h-8 text-emerald-500/50 mb-2" />
-                  No pending access requests in queue.
+                  {permissions.role === 'Employee'
+                    ? 'No pending access requests submitted.'
+                    : 'No pending access requests in queue.'}
                 </div>
               ) : (
-                pendingApprovals.map((grant) => (
-                  <div
-                    key={grant.id}
-                    onClick={() => setActiveTab('access')}
-                    className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-amber-500/40 cursor-pointer transition-all flex flex-col gap-2 group"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors">
-                            {grant.inventory?.name || 'Asset'}
-                          </span>
-                          <StatusBadge status={grant.accessLevel} />
+                pendingApprovals.map((grant) => {
+                  const isMine = isOwnGrant(grant);
+                  const canApprove =
+                    !isMine &&
+                    (permissions.canApproveElevatedGrant ||
+                      (permissions.canApproveStandardGrant &&
+                        grant.accessLevel !== 'ADMIN' &&
+                        grant.accessLevel !== 'ROOT_SUPERADMIN'));
+
+                  return (
+                    <div
+                      key={grant.id}
+                      onClick={() => setActiveTab('access')}
+                      className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-amber-500/40 cursor-pointer transition-all flex flex-col gap-2 group"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors">
+                              {grant.inventory?.name || 'Asset'}
+                            </span>
+                            <StatusBadge status={grant.accessLevel} />
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            Requested by:{' '}
+                            <span className="text-slate-300 font-semibold">
+                              {grant.employee
+                                ? `${(grant.employee as any).firstName || (grant.employee as any).first_name || ''} ${(grant.employee as any).lastName || (grant.employee as any).last_name || ''}`.trim() || grant.employee.email
+                                : 'Elena Rostova'}
+                            </span>
+                          </p>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1">
-                          Requested by:{' '}
-                          <span className="text-slate-300 font-semibold">
-                            {grant.employee?.firstName} {grant.employee?.lastName}
-                          </span>
-                        </p>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          {grant.metadata?.durationHours || 4}h TTL
+                        </span>
                       </div>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-amber-400" />
-                        {grant.metadata?.durationHours || 4}h TTL
-                      </span>
-                    </div>
 
-                    <p className="text-xs text-slate-300 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 italic">
-                      "{grant.justification}"
-                    </p>
+                      <p className="text-xs text-slate-300 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 italic">
+                        "{grant.justification}"
+                      </p>
 
-                    <div className="flex items-center justify-between pt-1 text-[11px]">
-                      <span className="text-amber-400 font-semibold flex items-center gap-1">
-                        <Edit3 className="w-3 h-3" /> Click to Review in Access
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          api.approveAccess(grant.id).then(() => {
-                            api.getAccessGrants().then(setGrants);
-                          });
-                        }}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors"
-                      >
-                        1-Click Approve
-                      </button>
+                      <div className="flex items-center justify-between pt-1 text-[11px]">
+                        <span className="text-amber-400 font-semibold flex items-center gap-1">
+                          <Edit3 className="w-3 h-3" /> {permissions.role === 'Employee' ? 'Click to View Details in Access' : 'Click to Review in Access'}
+                        </span>
+
+                        {permissions.role === 'Employee' ? (
+                          <span className="px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/20 text-xs font-semibold flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-purple-400" />
+                            Awaiting Supervisor Review
+                          </span>
+                        ) : isMine ? (
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 text-xs font-semibold flex items-center gap-1">
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            Self Request (Requires Peer Review)
+                          </span>
+                        ) : canApprove ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              api.approveAccess(grant.id).then(() => {
+                                api.getAccessGrants().then(setGrants);
+                              });
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            1-Click Approve
+                          </button>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 text-xs font-semibold flex items-center gap-1">
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            Requires Admin Escalation
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -188,7 +270,10 @@ export const DashboardPage: React.FC<{ setActiveTab: (t: NavTab) => void; active
             onClick={() => setActiveTab('access')}
             className="w-full mt-4 pt-3 border-t border-slate-800 text-xs font-semibold text-brand-400 hover:text-brand-300 flex items-center justify-center gap-1"
           >
-            View Full Access Matrix & Audit Logs <ArrowUpRight className="w-3.5 h-3.5" />
+            {permissions.role === 'Employee'
+              ? 'View My Full Access History & Status'
+              : 'View Full Access Matrix & Audit Logs'}{' '}
+            <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
         </div>
 

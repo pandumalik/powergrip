@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
 import { Project, Client, Employee, ProjectRole } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
@@ -18,9 +19,11 @@ import {
   Trash2,
   UserPlus,
   AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const ProjectsPage: React.FC = () => {
+  const { permissions } = useAuth();
   const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
   const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
   const [employees, setEmployees] = useState<Employee[]>(() => api.getCachedEmployees());
@@ -316,20 +319,27 @@ export const ProjectsPage: React.FC = () => {
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Tracking customer project deliverables and embedded DevOps squad rosters. Click any card to edit.
+            Tracking customer project deliverables and embedded DevOps squad rosters. {permissions.canEditProject ? 'Click any card to edit.' : 'Click card to view details.'}
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setDateError('');
-            setIsCreateOpen(true);
-          }}
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          Initialize Project
-        </button>
+        {permissions.canCreateProject ? (
+          <button
+            onClick={() => {
+              setDateError('');
+              setIsCreateOpen(true);
+            }}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all self-start sm:self-auto cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            Initialize Project
+          </button>
+        ) : (
+          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-400 flex items-center gap-2 self-start sm:self-auto">
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+            <span>{permissions.roleDisplayName} (Projects Directory)</span>
+          </div>
+        )}
       </div>
 
       {/* Search */}
@@ -344,23 +354,25 @@ export const ProjectsPage: React.FC = () => {
         />
       </div>
 
-      {/* Bulk Action Toolbar */}
-      <BulkActionToolbar
-        selectedCount={selectedIds.length}
-        totalCount={filtered.length}
-        onSelectAll={handleSelectAll}
-        onDeselectAll={handleDeselectAll}
-        onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
-        isAllSelected={selectedIds.length === filtered.length && filtered.length > 0}
-        resourceName="projects"
-        deleteLabel={`Delete Selected (${selectedIds.length})`}
-      />
+      {/* Bulk Action Toolbar (Admin Only) */}
+      {permissions.canDeleteProject && (
+        <BulkActionToolbar
+          selectedCount={selectedIds.length}
+          totalCount={filtered.length}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
+          isAllSelected={selectedIds.length === filtered.length && filtered.length > 0}
+          resourceName="projects"
+          deleteLabel={`Delete Selected (${selectedIds.length})`}
+        />
+      )}
 
       {/* Projects Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {filtered.length === 0 ? (
           <div className="col-span-2 glass-panel rounded-2xl p-12 text-center text-slate-500 text-xs">
-            No projects found matching search criteria. Click "Initialize Project" to create one.
+            No projects found matching search criteria.
           </div>
         ) : (
           filtered.map((project) => {
@@ -382,17 +394,19 @@ export const ProjectsPage: React.FC = () => {
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3">
-                      <div
-                        className="pt-0.5"
-                        onClick={(e) => handleToggleSelect(project.id, e)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                        />
-                      </div>
+                      {permissions.canDeleteProject && (
+                        <div
+                          className="pt-0.5"
+                          onClick={(e) => handleToggleSelect(project.id, e)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                          />
+                        </div>
+                      )}
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-purple-300 border border-purple-500/30">
@@ -403,7 +417,7 @@ export const ProjectsPage: React.FC = () => {
                             {project.client?.name || 'Client Unlinked'}
                           </span>
                           <span className="text-[10px] text-purple-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity font-semibold">
-                            <Edit3 className="w-3 h-3" /> Click to Edit
+                            <Edit3 className="w-3 h-3" /> {permissions.canEditProject ? 'Click to Edit' : 'Click to View'}
                           </span>
                         </div>
                         <h3 className="text-base font-bold text-white mt-1.5 group-hover:text-purple-300 transition-colors">
@@ -414,14 +428,16 @@ export const ProjectsPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={project.status} />
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteClick(project, e)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors"
-                        title={`Delete project ${project.name}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {permissions.canDeleteProject && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteClick(project, e)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors cursor-pointer"
+                          title={`Delete project ${project.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -678,38 +694,40 @@ export const ProjectsPage: React.FC = () => {
                 </label>
 
                 {/* Add Member Row */}
-                <div className="flex gap-2 mb-3">
-                  <select
-                    value={newMemberEmpId}
-                    onChange={(e) => setNewMemberEmpId(e.target.value)}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
-                  >
-                    <option value="">Select Employee to Add...</option>
-                    {employees.map((emp) => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.firstName} {emp.lastName} ({emp.jobTitle})
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={newMemberRole}
-                    onChange={(e) => setNewMemberRole(e.target.value as ProjectRole)}
-                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
-                  >
-                    <option value="LEAD_ARCHITECT">Lead Architect</option>
-                    <option value="SENIOR_SRE">Senior SRE</option>
-                    <option value="DEVOPS_ENGINEER">DevOps Engineer</option>
-                    <option value="SECURITY_ANALYST">Security Analyst</option>
-                    <option value="PROJECT_MANAGER">Project Manager</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={handleAddMemberToEditing}
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" /> Add
-                  </button>
-                </div>
+                {permissions.canAssignSquadMembers && (
+                  <div className="flex gap-2 mb-2">
+                    <select
+                      value={newMemberEmpId}
+                      onChange={(e) => setNewMemberEmpId(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="">Select Employee to Add...</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.firstName} {emp.lastName} ({emp.jobTitle})
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={newMemberRole}
+                      onChange={(e) => setNewMemberRole(e.target.value as ProjectRole)}
+                      className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="LEAD_ARCHITECT">Lead Architect</option>
+                      <option value="SENIOR_SRE">Senior SRE</option>
+                      <option value="DEVOPS_ENGINEER">DevOps Engineer</option>
+                      <option value="SECURITY_ANALYST">Security Analyst</option>
+                      <option value="PROJECT_MANAGER">Project Manager</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAddMemberToEditing}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" /> Add
+                    </button>
+                  </div>
+                )}
 
                 {/* Current Squad Chips */}
                 <div className="space-y-1.5 max-h-36 overflow-y-auto">
@@ -728,13 +746,15 @@ export const ProjectsPage: React.FC = () => {
                             {m.role.replace(/_/g, ' ')}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMemberFromEditing(m.employee_id)}
-                          className="p-1 text-slate-400 hover:text-rose-400 rounded"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {permissions.canAssignSquadMembers && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveMemberFromEditing(m.employee_id)}
+                            className="p-1 text-slate-400 hover:text-rose-400 rounded cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -742,30 +762,38 @@ export const ProjectsPage: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => handleDeleteClick(editingProject)}
-                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Project
-                </button>
+                {permissions.canDeleteProject ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteClick(editingProject)}
+                    className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Project
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-500 italic">
+                    {!permissions.canEditProject ? 'Read-only view' : 'Authorized for squad roster updates'}
+                  </span>
+                )}
 
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setEditingProject(null)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl"
+                    className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl cursor-pointer"
                   >
-                    Cancel
+                    {permissions.canEditProject ? 'Cancel' : 'Close'}
                   </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    Save Changes
-                  </button>
+                  {permissions.canEditProject && (
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save Changes
+                    </button>
+                  )}
                 </div>
               </div>
             </form>

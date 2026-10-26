@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
 import { InventoryItem, Client, Project, AssetScope, AssetType, CloudProvider, CloudCredential } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { JsonModal } from '@/components/common/JsonModal';
@@ -26,9 +27,11 @@ import {
   CheckCircle2,
   Loader2,
   Clock,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const InventoriesPage: React.FC = () => {
+  const { permissions } = useAuth();
   const [inventories, setInventories] = useState<InventoryItem[]>(() => api.getCachedInventories());
   const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
   const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
@@ -255,55 +258,68 @@ export const InventoriesPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-          {/* Service Account Manager Button */}
-          <button
-            onClick={() => setIsSaManagerOpen(true)}
-            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-2 transition-all hover:border-brand-500"
-          >
-            <KeyRound className="w-4 h-4 text-brand-400" />
-            <span>Cloud Keys</span>
-            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-brand-300 text-[10px] font-mono border border-slate-700">
-              {savedCredentials.length}
-            </span>
-          </button>
+          {permissions.canSyncCloudCredentials && (
+            <>
+              {/* Service Account Manager Button */}
+              <button
+                onClick={() => setIsSaManagerOpen(true)}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-2 transition-all hover:border-brand-500 cursor-pointer"
+              >
+                <KeyRound className="w-4 h-4 text-brand-400" />
+                <span>Cloud Keys</span>
+                <span className="px-1.5 py-0.2 rounded bg-slate-800 text-brand-300 text-[10px] font-mono border border-slate-700">
+                  {savedCredentials.length}
+                </span>
+              </button>
 
-          {/* Quick Fleet Re-Scan Button */}
-          <button
-            onClick={handleFleetReScan}
-            disabled={isFleetScanning || savedCredentials.length === 0}
-            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-2 transition-all hover:border-emerald-500"
-            title="Trigger immediate re-scan across all active service accounts"
-          >
-            {isFleetScanning ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                <span>Re-scanning...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4 text-emerald-400" />
-                <span>Re-scan Fleet</span>
-              </>
-            )}
-          </button>
+              {/* Quick Fleet Re-Scan Button */}
+              <button
+                onClick={handleFleetReScan}
+                disabled={isFleetScanning || savedCredentials.length === 0}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-2 transition-all hover:border-emerald-500 cursor-pointer"
+                title="Trigger immediate re-scan across all active service accounts"
+              >
+                {isFleetScanning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>Re-scanning...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 text-emerald-400" />
+                    <span>Re-scan Fleet</span>
+                  </>
+                )}
+              </button>
+            </>
+          )}
 
-          {/* Import from Cloud */}
-          <button
-            onClick={() => setIsCloudImportOpen(true)}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-2 transition-all"
-          >
-            <Cloud className="w-4 h-4 text-brand-400" />
-            Import Cloud
-          </button>
+          {permissions.canCreateInventory ? (
+            <>
+              {/* Import from Cloud */}
+              <button
+                onClick={() => setIsCloudImportOpen(true)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Cloud className="w-4 h-4 text-brand-400" />
+                Import Cloud
+              </button>
 
-          {/* Register Asset */}
-          <button
-            onClick={() => setIsCreateOpen(true)}
-            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            Register Asset
-          </button>
+              {/* Register Asset */}
+              <button
+                onClick={() => setIsCreateOpen(true)}
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                Register Asset
+              </button>
+            </>
+          ) : (
+            <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-400 flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{permissions.roleDisplayName} (CMDB Read-Only)</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -388,17 +404,19 @@ export const InventoriesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Bulk Selection Toolbar */}
-      <BulkActionToolbar
-        selectedCount={selectedIds.length}
-        totalCount={filtered.length}
-        onSelectAll={handleSelectAll}
-        onDeselectAll={handleDeselectAll}
-        onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
-        isAllSelected={selectedIds.length === filtered.length && filtered.length > 0}
-        resourceName="assets"
-        deleteLabel={`Delete Selected (${selectedIds.length})`}
-      />
+      {/* Bulk Selection Toolbar (Admin Only) */}
+      {permissions.canDeleteInventory && (
+        <BulkActionToolbar
+          selectedCount={selectedIds.length}
+          totalCount={filtered.length}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
+          isAllSelected={selectedIds.length === filtered.length && filtered.length > 0}
+          resourceName="assets"
+          deleteLabel={`Delete Selected (${selectedIds.length})`}
+        />
+      )}
 
       {/* Inventory Table */}
       <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
@@ -406,18 +424,20 @@ export const InventoriesPage: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="px-4 py-3.5 w-10 text-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.length === filtered.length && filtered.length > 0}
-                    onChange={(e) => {
-                      if (e.target.checked) handleSelectAll();
-                      else handleDeselectAll();
-                    }}
-                    className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                    title={selectedIds.length === filtered.length && filtered.length > 0 ? 'Deselect All' : 'Select All'}
-                  />
-                </th>
+                {permissions.canDeleteInventory && (
+                  <th className="px-4 py-3.5 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length === filtered.length && filtered.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) handleSelectAll();
+                        else handleDeselectAll();
+                      }}
+                      className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                      title={selectedIds.length === filtered.length && filtered.length > 0 ? 'Deselect All' : 'Select All'}
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3.5">Asset Tag & Hostname</th>
                 <th className="px-4 py-3.5">Scope & Owner</th>
                 <th className="px-4 py-3.5">Type & Provider</th>
@@ -444,17 +464,19 @@ export const InventoriesPage: React.FC = () => {
                         isSelected ? 'bg-brand-500/5' : ''
                       }`}
                     >
-                      <td
-                        className="px-4 py-4 w-10 text-center"
-                        onClick={(e) => handleToggleSelect(item.id, e)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                        />
-                      </td>
+                      {permissions.canDeleteInventory && (
+                        <td
+                          className="px-4 py-4 w-10 text-center"
+                          onClick={(e) => handleToggleSelect(item.id, e)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                          />
+                        </td>
+                      )}
 
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2">
@@ -462,7 +484,7 @@ export const InventoriesPage: React.FC = () => {
                             {item.assetTag}
                           </span>
                           <span className="text-[10px] text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity font-semibold flex items-center gap-1">
-                            <Edit3 className="w-3 h-3" /> Edit
+                            <Edit3 className="w-3 h-3" /> {permissions.canEditInventory ? 'Edit' : 'View'}
                           </span>
                         </div>
                         <span className="font-bold text-white text-xs block mt-0.5 group-hover:text-emerald-400 transition-colors">
@@ -537,15 +559,17 @@ export const InventoriesPage: React.FC = () => {
                             Specs
                           </button>
 
-                          {/* Delete Asset Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteClick(item, e)}
-                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors"
-                            title={`Delete asset ${item.name}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Delete Asset Button (Admin Only) */}
+                          {permissions.canDeleteInventory && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteClick(item, e)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors cursor-pointer"
+                              title={`Delete asset ${item.name}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -702,29 +726,37 @@ export const InventoriesPage: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => handleDeleteClick(editingItem)}
-                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Asset
-                </button>
+                {permissions.canDeleteInventory ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteClick(editingItem)}
+                    className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Asset
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-500 italic">
+                    {!permissions.canEditInventory ? 'Read-only view' : 'Authorized for inventory updates'}
+                  </span>
+                )}
 
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setEditingItem(null)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl"
+                    className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl cursor-pointer"
                   >
-                    Cancel
+                    {permissions.canEditInventory ? 'Cancel' : 'Close'}
                   </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20"
-                  >
-                    Save Asset
-                  </button>
+                  {permissions.canEditInventory && (
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 cursor-pointer"
+                    >
+                      Save Asset
+                    </button>
+                  )}
                 </div>
               </div>
             </form>

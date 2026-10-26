@@ -30,6 +30,7 @@ pub fn router() -> Router<PgPool> {
         .route("/accesses/:id/approve", patch(approve_access))
         .route("/accesses/:id/reject", patch(reject_access))
         .route("/accesses/:id/revoke", patch(revoke_access))
+        .route("/accesses/:id/cancel", patch(cancel_access))
 }
 
 async fn resolve_valid_employee_id(pool: &PgPool, passed: Option<&str>) -> Result<Uuid, AppError> {
@@ -100,13 +101,13 @@ pub async fn fetch_access_grant_by_id(pool: &PgPool, id: Uuid) -> Result<AccessG
             ag.metadata, ag.created_at, ag.updated_at,
             (
                 SELECT to_json(e) FROM (
-                    SELECT id, employee_number, first_name, last_name, email, job_title
+                    SELECT id, employee_number as "employeeNumber", first_name as "firstName", last_name as "lastName", email, job_title as "jobTitle"
                     FROM employees WHERE id = ag.employee_id
                 ) e
             ) AS employee,
             (
                 SELECT to_json(i) FROM (
-                    SELECT id, asset_tag, name, provider::text as provider, region, host(primary_ip) as primary_ip
+                    SELECT id, asset_tag as "assetTag", name, provider::text as provider, region, host(primary_ip) as "primaryIp"
                     FROM inventories WHERE id = ag.inventory_id
                 ) i
             ) AS inventory,
@@ -139,13 +140,13 @@ async fn list_accesses(State(pool): State<PgPool>) -> Result<impl IntoResponse, 
             ag.metadata, ag.created_at, ag.updated_at,
             (
                 SELECT to_json(e) FROM (
-                    SELECT id, employee_number, first_name, last_name, email, job_title
+                    SELECT id, employee_number as "employeeNumber", first_name as "firstName", last_name as "lastName", email, job_title as "jobTitle"
                     FROM employees WHERE id = ag.employee_id
                 ) e
             ) AS employee,
             (
                 SELECT to_json(i) FROM (
-                    SELECT id, asset_tag, name, provider::text as provider, region, host(primary_ip) as primary_ip
+                    SELECT id, asset_tag as "assetTag", name, provider::text as provider, region, host(primary_ip) as "primaryIp"
                     FROM inventories WHERE id = ag.inventory_id
                 ) i
             ) AS inventory,
@@ -452,6 +453,53 @@ async fn revoke_access(
     .bind(grant.inventory_id)
     .bind(json!({
         "revokedBy": revoker_id,
+        "reason": reason
+    }))
+    .execute(&pool)
+    .await;
+
+    let full = fetch_access_grant_by_id(&pool, id).await?;
+    Ok(Json(full))
+}
+
+async fn cancel_access(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+    Json(dto): Json<RevokeReasonDto>,
+) -> Result<impl IntoResponse, AppError> {
+    let grant = fetch_access_grant_by_id(&pool, id).await?;
+    let now = Utc::now();
+    let reason = dto
+        .reason
+        .unwrap_or_else(|| "Cancelled by requester".to_string());
+
+    let query = r#"
+        UPDATE access_grants SET
+            status = 'CANCELLED'::access_status_enum,
+            revoked_at = $2,
+            revocation_reason = $3,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+    "#;
+
+    sqlx::query(query)
+        .bind(id)
+        .bind(now)
+        .bind(&reason)
+        .execute(&pool)
+        .await?;
+
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO access_audit_logs (grant_id, employee_id, inventory_id, action, metadata)
+        VALUES ($1, $2, $3, 'ACCESS_REQUEST_CANCELLED', $4)
+        "#,
+    )
+    .bind(id)
+    .bind(grant.employee_id)
+    .bind(grant.inventory_id)
+    .bind(json!({
+        "cancelledAt": now.to_rfc3339(),
         "reason": reason
     }))
     .execute(&pool)

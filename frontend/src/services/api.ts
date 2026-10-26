@@ -1341,6 +1341,64 @@ class ApiClient {
     return grant;
   }
 
+  async cancelAccessRequest(grantId: string, reason?: string): Promise<AccessGrant> {
+    const cancelReason = reason || 'Cancelled by requester';
+    if (!this.useMock) {
+      try {
+        const res = await fetch(`${API_BASE}/accesses/${grantId}/cancel`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: cancelReason }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.accessGrants.findIndex((g) => g.id === grantId);
+          if (idx !== -1) this.accessGrants[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to cancel access on dedicated route, trying update', err);
+      }
+      try {
+        const res = await fetch(`${API_BASE}/accesses/${grantId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'CANCELLED',
+            revocationReason: cancelReason,
+          }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.accessGrants.findIndex((g) => g.id === grantId);
+          if (idx !== -1) this.accessGrants[idx] = updated;
+          return updated;
+        }
+      } catch (err) {
+        console.warn('[ApiClient] Failed to update access to CANCELLED on backend', err);
+      }
+    }
+
+    const grant = this.accessGrants.find((g) => g.id === grantId);
+    if (!grant) throw new Error('Grant not found');
+
+    grant.status = 'CANCELLED';
+    grant.revokedAt = new Date().toISOString();
+    grant.revocationReason = cancelReason;
+
+    this.auditLogs.unshift({
+      id: `log_${Date.now()}`,
+      grantId: grant.id,
+      employeeId: grant.employeeId,
+      inventoryId: grant.inventoryId,
+      action: 'ACCESS_REQUEST_CANCELLED',
+      metadata: { reason: cancelReason },
+      createdAt: new Date().toISOString(),
+    });
+
+    return grant;
+  }
+
   // ===========================================================================
   // Employees & Org Chart
   // ===========================================================================
@@ -1601,38 +1659,58 @@ class ApiClient {
     };
   }
 
-  async login(payload: { email?: string; password?: string; provider?: string }) {
-    try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch (err) {
-      console.warn('[ApiClient] Failed to call login endpoint, using fallback', err);
+  async loginWithGoogle(payload: {
+    email: string;
+    name?: string;
+    picture?: string;
+    sub?: string;
+    token?: string;
+    credential?: string;
+  }) {
+    const res = await fetch(`${API_BASE}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.message || 'Google authentication failed on server.');
     }
-    // Fallback response for Muhammad Galang (Admin)
-    return {
-      token: 'pg-local-sess-token',
-      user: {
-        id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-        name: 'Muhammad Galang',
-        email: 'muhammad.galang@ist.id',
-        role: 'ADMIN',
-        jobTitle: 'Principal Cloud Architect & PowerGrip Superadmin',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-        gcpConnected: true,
-        gcpAccount: 'muhammad.galang@ist.id',
-      },
-      gcp_session: {
-        active: true,
-        account: 'muhammad.galang@ist.id',
-        status: 'ACTIVE',
-      },
-    };
+    return await res.json();
+  }
+
+  async loginWithKeycloak(username: string, password: string) {
+    const params = new URLSearchParams();
+    params.append('client_id', 'powergrip-frontend');
+    params.append('grant_type', 'password');
+    params.append('username', username.trim());
+    params.append('password', password);
+
+    const kcRes = await fetch('http://localhost:8080/realms/powergrip-realm/protocol/openid-connect/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    if (!kcRes.ok) {
+      const err = await kcRes.json().catch(() => ({}));
+      throw new Error(err.error_description || 'Keycloak authentication failed: invalid credentials');
+    }
+
+    return await kcRes.json();
+  }
+
+  async login(payload: { email?: string; password?: string }) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.message || 'Authentication failed. Please check your email and password.');
+    }
+    return await res.json();
   }
 
   async getGcpLocalProjects(): Promise<Array<{ projectId: string; name: string; projectNumber?: string }>> {

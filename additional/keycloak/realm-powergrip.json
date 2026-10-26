@@ -1,7 +1,7 @@
 {
   "id": "powergrip-realm",
   "realm": "powergrip-realm",
-  "displayName": "PowerGrip Asset Management & Zero-Trust PAM",
+  "displayName": "PowerGrip Privileged Access & Governance",
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
@@ -13,24 +13,28 @@
   "roles": {
     "realm": [
       {
-        "name": "ADMIN",
+        "name": "Admin",
         "description": "Full System Administrator with global privilege"
       },
       {
-        "name": "PROJECT_MANAGER",
-        "description": "Manages projects and endorses team access requests"
+        "name": "Manager",
+        "description": "Squad & Operations Manager with approval & delegation rights"
       },
       {
-        "name": "SRE_LEAD",
-        "description": "Approves technical access requests and infrastructure configurations"
+        "name": "Employee",
+        "description": "Standard Engineer with least-privilege zero-trust access"
       },
       {
-        "name": "DEVOPS_ENGINEER",
-        "description": "Standard engineer requesting temporary access to inventory"
+        "name": "ADMIN",
+        "description": "Legacy alias for Admin"
       },
       {
-        "name": "SECURITY_OFFICER",
-        "description": "Authorizes elevated ROOT and SuperAdmin access grants"
+        "name": "MANAGER",
+        "description": "Legacy alias for Manager"
+      },
+      {
+        "name": "EMPLOYEE",
+        "description": "Legacy alias for Employee"
       }
     ]
   },
@@ -66,11 +70,11 @@
   ],
   "users": [
     {
-      "id": "e1111111-1111-1111-1111-111111111111",
+      "id": "a1111111-1111-1111-1111-111111111111",
       "username": "admin@powergrip.internal",
       "email": "admin@powergrip.internal",
-      "firstName": "Super",
-      "lastName": "Admin",
+      "firstName": "Sarah",
+      "lastName": "Jenkins",
       "enabled": true,
       "emailVerified": true,
       "credentials": [
@@ -80,41 +84,61 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["ADMIN", "SECURITY_OFFICER"]
+      "realmRoles": ["Admin", "ADMIN"],
+      "attributes": {
+        "hierarchy_path": ["ORG.ADMIN"],
+        "jobTitle": ["Principal Systems Director & Superadmin"],
+        "role": ["Admin"],
+        "employeeNumber": ["EMP-ADM-001"]
+      }
     },
     {
-      "id": "e2222222-2222-2222-2222-222222222222",
-      "username": "lead.sre@powergrip.internal",
-      "email": "lead.sre@powergrip.internal",
-      "firstName": "Alex",
-      "lastName": "Mercer",
+      "id": "b2222222-2222-2222-2222-222222222222",
+      "username": "manager@powergrip.internal",
+      "email": "manager@powergrip.internal",
+      "firstName": "Marcus",
+      "lastName": "Vance",
       "enabled": true,
       "emailVerified": true,
       "credentials": [
         {
           "type": "password",
-          "value": "SrePass2026!",
+          "value": "ManagerPass2026!",
           "temporary": false
         }
       ],
-      "realmRoles": ["SRE_LEAD", "PROJECT_MANAGER"]
+      "realmRoles": ["Manager", "MANAGER"],
+      "attributes": {
+        "hierarchy_path": ["ORG.ADMIN.MGR"],
+        "manager_id": ["a1111111-1111-1111-1111-111111111111"],
+        "jobTitle": ["Head of Cloud Operations & Squad Lead"],
+        "role": ["Manager"],
+        "employeeNumber": ["EMP-MGR-002"]
+      }
     },
     {
-      "id": "e3333333-3333-3333-3333-333333333333",
-      "username": "dev.jane@powergrip.internal",
-      "email": "dev.jane@powergrip.internal",
-      "firstName": "Jane",
-      "lastName": "Doe",
+      "id": "c3333333-3333-3333-3333-333333333333",
+      "username": "employee@powergrip.internal",
+      "email": "employee@powergrip.internal",
+      "firstName": "Elena",
+      "lastName": "Rostova",
       "enabled": true,
       "emailVerified": true,
       "credentials": [
         {
           "type": "password",
-          "value": "DevPass2026!",
+          "value": "EmployeePass2026!",
           "temporary": false
         }
       ],
-      "realmRoles": ["DEVOPS_ENGINEER"]
+      "realmRoles": ["Employee", "EMPLOYEE"],
+      "attributes": {
+        "hierarchy_path": ["ORG.ADMIN.MGR.EMP"],
+        "manager_id": ["b2222222-2222-2222-2222-222222222222"],
+        "jobTitle": ["Cloud Platform & SRE Engineer"],
+        "role": ["Employee"],
+        "employeeNumber": ["EMP-DEV-003"]
+      }
     }
   ]
 }

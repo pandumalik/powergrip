@@ -11,6 +11,7 @@ pub enum AppError {
     NotFound(String),
     Conflict(String),
     BadRequest(String),
+    Unauthorized(String),
     Database(sqlx::Error),
     Internal(String),
 }
@@ -48,6 +49,7 @@ impl IntoResponse for AppError {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg, "Not Found"),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg, "Conflict"),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg, "Bad Request"),
+            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg, "Unauthorized"),
             AppError::Database(err) => {
                 tracing::error!("Database query error: {:?}", err);
                 (

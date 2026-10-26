@@ -53,7 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                   v{config.version}
                 </span>
               </h1>
-              <p className="text-[11px] text-slate-400 font-medium truncate max-w-[150px]" title={config.tagline}>
+              <p className="text-[11px] text-slate-400 font-medium" title={config.tagline}>
                 {config.tagline}
               </p>
             </div>
@@ -115,17 +115,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             >
               <Settings className="w-4 h-4" />
             </button>
-          </div>
-
-          {/* Security Badge */}
-          <div className="p-2.5 rounded-xl bg-slate-900/40 border border-slate-800/80 text-[11px]">
-            <div className="flex items-center gap-1.5 text-brand-400 font-semibold mb-0.5">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>{config.footer.securityBadge}</span>
-            </div>
-            <p className="text-[10px] text-slate-400 leading-tight">
-              {config.footer.complianceText}
-            </p>
           </div>
         </div>
       </aside>

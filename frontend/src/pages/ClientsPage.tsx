@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
 import { Client } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { SearchableCreatableSelect } from '@/components/common/SearchableCreatableSelect';
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react';
 
 export const ClientsPage: React.FC = () => {
+  const { permissions } = useAuth();
   const [clients, setClients] = useState<Client[]>(() => api.getCachedClients());
   const [industries, setIndustries] = useState<string[]>(() => api.getCachedIndustries());
   const [search, setSearch] = useState('');
@@ -225,31 +227,40 @@ export const ClientsPage: React.FC = () => {
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Manage multi-tenant corporate clients, global operating sites, and signed SLAs. Click any card to edit.
+            Manage multi-tenant corporate clients, global operating sites, and signed SLAs. {permissions.canEditClient ? 'Click any card to edit.' : 'Click card to view details.'}
           </p>
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => setIsIndustryModalOpen(true)}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 flex items-center gap-2 transition-all"
-          >
-            <Layers className="w-4 h-4 text-purple-400" />
-            Manage Industries ({industries.length})
-          </button>
+          {permissions.canCreateClient ? (
+            <>
+              <button
+                onClick={() => setIsIndustryModalOpen(true)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Layers className="w-4 h-4 text-purple-400" />
+                Manage Industries ({industries.length})
+              </button>
 
-          <button
-            onClick={() => {
-              if (industries.length > 0 && !industry) {
-                setIndustry(industries[0]);
-              }
-              setIsCreateOpen(true);
-            }}
-            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            Onboard Client
-          </button>
+              <button
+                onClick={() => {
+                  if (industries.length > 0 && !industry) {
+                    setIndustry(industries[0]);
+                  }
+                  setIsCreateOpen(true);
+                }}
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                Onboard Client
+              </button>
+            </>
+          ) : (
+            <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-400 flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-brand-400" />
+              <span>{permissions.roleDisplayName} (Client Directory)</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -280,23 +291,25 @@ export const ClientsPage: React.FC = () => {
         </select>
       </div>
 
-      {/* Bulk Action Toolbar */}
-      <BulkActionToolbar
-        selectedCount={selectedIds.length}
-        totalCount={filtered.length}
-        onSelectAll={handleSelectAll}
-        onDeselectAll={handleDeselectAll}
-        onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
-        isAllSelected={selectedIds.length === filtered.length && filtered.length > 0}
-        resourceName="clients"
-        deleteLabel={`Delete Selected (${selectedIds.length})`}
-      />
+      {/* Bulk Action Toolbar (Admin Only) */}
+      {permissions.canDeleteClient && (
+        <BulkActionToolbar
+          selectedCount={selectedIds.length}
+          totalCount={filtered.length}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
+          isAllSelected={selectedIds.length === filtered.length && filtered.length > 0}
+          resourceName="clients"
+          deleteLabel={`Delete Selected (${selectedIds.length})`}
+        />
+      )}
 
       {/* Client Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {filtered.length === 0 ? (
           <div className="col-span-2 glass-panel rounded-2xl p-12 text-center text-slate-500 text-xs">
-            No clients found matching search criteria. Click "Onboard Client" to add one.
+            No clients found matching search criteria.
           </div>
         ) : (
           filtered.map((client) => {
@@ -315,24 +328,26 @@ export const ClientsPage: React.FC = () => {
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3">
-                      <div
-                        className="pt-0.5"
-                        onClick={(e) => handleToggleSelect(client.id, e)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                        />
-                      </div>
+                      {permissions.canDeleteClient && (
+                        <div
+                          className="pt-0.5"
+                          onClick={(e) => handleToggleSelect(client.id, e)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                          />
+                        </div>
+                      )}
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
                             {client.code}
                           </span>
                           <span className="text-[10px] text-brand-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity font-semibold">
-                            <Edit3 className="w-3 h-3" /> Click to Edit
+                            <Edit3 className="w-3 h-3" /> {permissions.canEditClient ? 'Click to Edit' : 'Click to View'}
                           </span>
                         </div>
                         <h3 className="text-base font-bold text-white mt-1.5 group-hover:text-brand-400 transition-colors">
@@ -346,14 +361,16 @@ export const ClientsPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={client.status} />
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteClick(client, e)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors"
-                        title={`Delete client ${client.name}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {permissions.canDeleteClient && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteClick(client, e)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs inline-flex items-center transition-colors cursor-pointer"
+                          title={`Delete client ${client.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -594,30 +611,38 @@ export const ClientsPage: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => handleDeleteClick(editingClient)}
-                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Client
-                </button>
+                {permissions.canDeleteClient ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteClick(editingClient)}
+                    className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Client
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-500 italic">
+                    {!permissions.canEditClient ? 'Read-only view' : 'Authorized for operational updates'}
+                  </span>
+                )}
 
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setEditingClient(null)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl"
+                    className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl cursor-pointer"
                   >
-                    Cancel
+                    {permissions.canEditClient ? 'Cancel' : 'Close'}
                   </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    Save Changes
-                  </button>
+                  {permissions.canEditClient && (
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save Changes
+                    </button>
+                  )}
                 </div>
               </div>
             </form>

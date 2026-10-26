@@ -1,75 +1,35 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useMemo } from 'react';
 import { api } from '@/services/api';
+import { getRolePermissions, RolePermissions } from '@/utils/permissions';
 
 export interface UserProfile {
   id: string;
   name: string;
   email: string;
-  role: 'ADMIN' | 'SRE_LEAD' | 'PROJECT_MANAGER' | 'DEVOPS_ENGINEER' | 'SECURITY_OFFICER';
+  role: 'Admin' | 'Manager' | 'Employee' | string;
   jobTitle: string;
   avatar: string;
+  hierarchyPath?: string;
+  authProvider?: 'google' | 'keycloak' | 'credentials';
   gcpConnected?: boolean;
   gcpAccount?: string;
-}
-
-export const DEMO_USERS: UserProfile[] = [
-  {
-    id: 'emp-galang-001',
-    name: 'Muhammad Galang',
-    email: 'muhammad.galang@ist.id',
-    role: 'ADMIN',
-    jobTitle: 'Principal Cloud Architect & PowerGrip Superadmin',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-    gcpConnected: true,
-    gcpAccount: 'muhammad.galang@ist.id',
-  },
-  {
-    id: 'e222',
-    name: 'Alex Mercer',
-    email: 'alex.mercer@vendor.internal',
-    role: 'SRE_LEAD',
-    jobTitle: 'Head of Cloud Operations & SRE',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
-    gcpConnected: false,
-  },
-  {
-    id: 'e333',
-    name: 'Jane Doe',
-    email: 'jane.doe@vendor.internal',
-    role: 'DEVOPS_ENGINEER',
-    jobTitle: 'Senior Cloud Platform Engineer',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80',
-    gcpConnected: false,
-  },
-  {
-    id: 'e444',
-    name: 'Farhan Rizky',
-    email: 'farhan.r@vendor.internal',
-    role: 'SECURITY_OFFICER',
-    jobTitle: 'Principal Security Officer',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80',
-    gcpConnected: false,
-  },
-];
-
-interface GcpStatusState {
-  available: boolean;
-  connected: boolean;
-  account: string | null;
-  isAdmin: boolean;
-  message: string;
 }
 
 interface AuthContextType {
   currentUser: UserProfile | null;
   isAuthenticated: boolean;
+  permissions: RolePermissions;
   login: (user: UserProfile) => void;
-  loginWithGoogle: () => Promise<UserProfile>;
+  loginWithGoogle: (googleData: {
+    email: string;
+    name?: string;
+    picture?: string;
+    sub?: string;
+    token?: string;
+    credential?: string;
+  }) => Promise<UserProfile>;
+  loginWithCredentials: (email: string, password?: string) => Promise<UserProfile>;
   logout: () => void;
-  switchUserRole: (role: UserProfile['role']) => void;
-  isKeycloakActive: boolean;
-  gcpStatus: GcpStatusState;
-  refreshGcpStatus: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -78,39 +38,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
       const saved = localStorage.getItem('powergrip_auth_user');
-      if (saved) return JSON.parse(saved);
+      const isAuth = localStorage.getItem('powergrip_authenticated') === 'true';
+      if (saved && isAuth) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.email) {
+          return parsed;
+        }
+      }
     } catch (e) {
       console.warn('Failed to parse saved user', e);
     }
-    // Default to Muhammad Galang (Admin) if previously logged in, or null
     return null;
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('powergrip_authenticated') === 'true';
+    const saved = localStorage.getItem('powergrip_auth_user');
+    return !!(saved && localStorage.getItem('powergrip_authenticated') === 'true');
   });
 
-  const [isKeycloakActive] = useState<boolean>(false);
-  const [gcpStatus, setGcpStatus] = useState<GcpStatusState>({
-    available: false,
-    connected: false,
-    account: null,
-    isAdmin: false,
-    message: 'Checking Google Cloud identity...',
-  });
-
-  const refreshGcpStatus = async () => {
-    try {
-      const status = await api.getGcpAuthStatus();
-      setGcpStatus(status);
-    } catch (err) {
-      console.error('Failed to query GCP auth status', err);
-    }
-  };
-
-  useEffect(() => {
-    refreshGcpStatus();
-  }, []);
+  const permissions = useMemo(() => {
+    return getRolePermissions(currentUser?.role);
+  }, [currentUser?.role]);
 
   const login = (user: UserProfile) => {
     setCurrentUser(user);
@@ -119,19 +67,81 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('powergrip_authenticated', 'true');
   };
 
-  const loginWithGoogle = async (): Promise<UserProfile> => {
-    const authRes = await api.login({ provider: 'google' });
+  const loginWithGoogle = async (googleData: {
+    email: string;
+    name?: string;
+    picture?: string;
+    sub?: string;
+    token?: string;
+    credential?: string;
+  }): Promise<UserProfile> => {
+    const authRes = await api.loginWithGoogle(googleData);
     const user: UserProfile = {
       id: authRes.user.id,
       name: authRes.user.name,
       email: authRes.user.email,
-      role: authRes.user.role as any,
+      role: authRes.user.role || 'Admin',
       jobTitle: authRes.user.job_title,
       avatar: authRes.user.avatar,
-      gcpConnected: authRes.user.gcp_connected,
-      gcpAccount: authRes.user.gcp_account,
+      authProvider: 'google',
+      gcpConnected: true,
+      gcpAccount: authRes.user.gcp_account || googleData.email,
     };
     login(user);
+    if (authRes.token) {
+      localStorage.setItem('powergrip_auth_token', authRes.token);
+    }
+    return user;
+  };
+
+  const loginWithCredentials = async (email: string, password?: string): Promise<UserProfile> => {
+    let keycloakToken = null;
+    let keycloakRole: string | undefined = undefined;
+
+    // 1. First authenticate with Keycloak 26 Identity Provider
+    try {
+      if (password) {
+        const kcData = await api.loginWithKeycloak(email, password);
+        if (kcData?.access_token) {
+          keycloakToken = kcData.access_token;
+          // Decode realm roles from Keycloak JWT
+          try {
+            const payload = JSON.parse(atob(kcData.access_token.split('.')[1]));
+            const roles = payload.realm_access?.roles || [];
+            if (roles.includes('Admin') || roles.includes('ADMIN')) keycloakRole = 'Admin';
+            else if (roles.includes('Manager') || roles.includes('MANAGER')) keycloakRole = 'Manager';
+            else if (roles.includes('Employee') || roles.includes('EMPLOYEE')) keycloakRole = 'Employee';
+          } catch {}
+        }
+      }
+    } catch (kcErr: any) {
+      console.warn('[AuthContext] Keycloak login notice:', kcErr.message);
+      // If Keycloak returned an explicit bad credentials error, propagate it
+      if (kcErr.message && !kcErr.message.includes('Failed to fetch')) {
+        throw new Error(kcErr.message);
+      }
+    }
+
+    // 2. Sync with backend Postgres database employee record
+    const authRes = await api.login({ email, password });
+    const userRole = keycloakRole || authRes.user.role || 'Employee';
+
+    const user: UserProfile = {
+      id: authRes.user.id,
+      name: authRes.user.name,
+      email: authRes.user.email,
+      role: userRole,
+      jobTitle: authRes.user.job_title,
+      avatar: authRes.user.avatar,
+      hierarchyPath: authRes.user.hierarchy_path,
+      authProvider: keycloakToken ? 'keycloak' : 'credentials',
+      gcpConnected: false,
+    };
+
+    login(user);
+    if (keycloakToken || authRes.token) {
+      localStorage.setItem('powergrip_auth_token', keycloakToken || authRes.token);
+    }
     return user;
   };
 
@@ -140,11 +150,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(false);
     localStorage.removeItem('powergrip_auth_user');
     localStorage.removeItem('powergrip_authenticated');
-  };
-
-  const switchUserRole = (role: UserProfile['role']) => {
-    const found = DEMO_USERS.find((u) => u.role === role) || DEMO_USERS[0];
-    login(found);
+    localStorage.removeItem('powergrip_auth_token');
+    try {
+      (window as any).google?.accounts?.id?.disableAutoSelect?.();
+    } catch {}
   };
 
   return (
@@ -152,13 +161,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         currentUser,
         isAuthenticated,
+        permissions,
         login,
         loginWithGoogle,
+        loginWithCredentials,
         logout,
-        switchUserRole,
-        isKeycloakActive,
-        gcpStatus,
-        refreshGcpStatus,
       }}
     >
       {children}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
 import { Employee, Department, Project, AccessGrant, InventoryItem, EmploymentStatus } from '@/types';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
@@ -25,6 +26,7 @@ import {
 } from 'lucide-react';
 
 export const OrgHierarchyPage: React.FC = () => {
+  const { permissions } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>(() => api.getCachedEmployees());
   const [departments, setDepartments] = useState<Department[]>(() => api.getCachedDepartments());
   const [projects, setProjects] = useState<Project[]>(() => api.getCachedProjects());
@@ -346,17 +348,19 @@ export const OrgHierarchyPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Bulk Action Toolbar */}
-      <BulkActionToolbar
-        selectedCount={selectedIds.length}
-        totalCount={filteredEmployees.length}
-        onSelectAll={handleSelectAll}
-        onDeselectAll={handleDeselectAll}
-        onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
-        isAllSelected={selectedIds.length === filteredEmployees.length && filteredEmployees.length > 0}
-        resourceName="employees"
-        deleteLabel={`Delete Selected (${selectedIds.length})`}
-      />
+      {/* Bulk Action Toolbar (Admin Only) */}
+      {permissions.canOffboardEmployee && (
+        <BulkActionToolbar
+          selectedCount={selectedIds.length}
+          totalCount={filteredEmployees.length}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
+          isAllSelected={selectedIds.length === filteredEmployees.length && filteredEmployees.length > 0}
+          resourceName="employees"
+          deleteLabel={`Delete Selected (${selectedIds.length})`}
+        />
+      )}
 
       {/* Employee Directory Table */}
       <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
@@ -364,20 +368,22 @@ export const OrgHierarchyPage: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="w-10 px-4 py-3.5 text-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.length === filteredEmployees.length && filteredEmployees.length > 0}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedIds(filteredEmployees.map((emp) => emp.id));
-                      } else {
-                        setSelectedIds([]);
-                      }
-                    }}
-                    className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                  />
-                </th>
+                {permissions.canOffboardEmployee && (
+                  <th className="w-10 px-4 py-3.5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length === filteredEmployees.length && filteredEmployees.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(filteredEmployees.map((emp) => emp.id));
+                        } else {
+                          setSelectedIds([]);
+                        }
+                      }}
+                      className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3.5 min-w-[200px]">Name & ID</th>
                 <th className="px-4 py-3.5 min-w-[200px]">Job Title & Hierarchy</th>
                 <th className="px-4 py-3.5 min-w-[180px]">Email & Verification</th>
@@ -407,17 +413,19 @@ export const OrgHierarchyPage: React.FC = () => {
                       }`}
                     >
                       {/* Checkbox */}
-                      <td
-                        className="w-10 px-4 py-3 text-center"
-                        onClick={(e) => handleToggleSelect(emp.id, e)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
-                        />
-                      </td>
+                      {permissions.canOffboardEmployee && (
+                        <td
+                          className="w-10 px-4 py-3 text-center"
+                          onClick={(e) => handleToggleSelect(emp.id, e)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500/30 cursor-pointer"
+                          />
+                        </td>
+                      )}
 
                       {/* Column 1: Name & ID with Status Ring on Avatar */}
                       <td className="px-4 py-3 min-w-[200px]">
@@ -450,9 +458,24 @@ export const OrgHierarchyPage: React.FC = () => {
 
                       {/* Column 2: Job Title & Hierarchy */}
                       <td className="px-4 py-3 min-w-[200px]">
-                        <p className="font-semibold text-slate-200 text-xs truncate max-w-[200px]" title={emp.jobTitle}>
-                          {emp.jobTitle}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-semibold text-slate-200 text-xs truncate max-w-[130px]" title={emp.jobTitle}>
+                            {emp.jobTitle}
+                          </p>
+                          {emp.hierarchyPath?.includes('EMP') || emp.employeeNumber?.includes('EMP') ? (
+                            <span className="px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[9px] font-mono font-bold shrink-0">
+                              Employee (L3)
+                            </span>
+                          ) : emp.hierarchyPath?.includes('MGR') || emp.employeeNumber?.includes('MGR') ? (
+                            <span className="px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[9px] font-mono font-bold shrink-0">
+                              Manager (L2)
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[9px] font-mono font-bold shrink-0">
+                              Admin (L1)
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] font-mono text-emerald-400 truncate max-w-[200px] mt-0.5" title={emp.hierarchyPath}>
                           {emp.hierarchyPath || emp.employeeNumber}
                         </p>
@@ -478,29 +501,35 @@ export const OrgHierarchyPage: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* Column 5: Actions (Offboard & Delete only) */}
+                      {/* Column 5: Actions */}
                       <td className="px-4 py-3 text-right min-w-[100px]">
                         <div className="flex items-center justify-end gap-1.5">
-                          {emp.employmentStatus === 'ACTIVE' && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleOffboardClick(emp, e)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium inline-flex items-center gap-1 transition-colors"
-                              title="Offboard employee"
-                            >
-                              <UserX className="w-3 h-3" />
-                              Offboard
-                            </button>
-                          )}
+                          {permissions.canOffboardEmployee ? (
+                            <>
+                              {emp.employmentStatus === 'ACTIVE' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOffboardClick(emp, e)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Offboard employee"
+                                >
+                                  <UserX className="w-3 h-3" />
+                                  Offboard
+                                </button>
+                              )}
 
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteClick(emp, e)}
-                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs inline-flex items-center transition-colors"
-                            title="Delete employee record"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteClick(emp, e)}
+                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs inline-flex items-center transition-colors cursor-pointer"
+                                title="Delete employee record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-slate-500 font-mono">View Only</span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -719,21 +748,27 @@ export const OrgHierarchyPage: React.FC = () => {
 
             {/* Modal Actions */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  const emp = selectedEmployeeDetails;
-                  setSelectedEmployeeDetails(null);
-                  setEditingEmployee({ ...emp });
-                }}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-1.5 transition-colors"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                Edit Profile
-              </button>
+              {permissions.canEditEmployee ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const emp = selectedEmployeeDetails;
+                    setSelectedEmployeeDetails(null);
+                    setEditingEmployee({ ...emp });
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  Edit Profile
+                </button>
+              ) : (
+                <span className="text-[11px] text-slate-500 italic">
+                  Read-only employee directory
+                </span>
+              )}
 
               <div className="flex items-center gap-2">
-                {selectedEmployeeDetails.employmentStatus === 'ACTIVE' && (
+                {permissions.canOffboardEmployee && selectedEmployeeDetails.employmentStatus === 'ACTIVE' && (
                   <button
                     type="button"
                     onClick={() => {
@@ -741,7 +776,7 @@ export const OrgHierarchyPage: React.FC = () => {
                       setSelectedEmployeeDetails(null);
                       handleOffboardClick(emp);
                     }}
-                    className="px-3.5 py-2 text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl flex items-center gap-1.5 transition-colors"
+                    className="px-3.5 py-2 text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <UserX className="w-3.5 h-3.5" />
                     Offboard Staff
@@ -751,7 +786,7 @@ export const OrgHierarchyPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSelectedEmployeeDetails(null)}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-lg shadow-brand-600/20 cursor-pointer"
                 >
                   Close
                 </button>
